@@ -20,7 +20,7 @@ from typing import Protocol
 
 from gri.config import get_settings
 from gri.logging import get_logger
-from gri.processing.prompts import EXTRACT_EVENT_V1, render_extraction_prompt
+from gri.processing.prompts import EXTRACT_EVENT_V2, render_extraction_v2
 from gri.schemas import ExtractionResult
 
 log = get_logger(__name__)
@@ -36,6 +36,11 @@ PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-opus-5": (5.00, 25.00),
     "claude-haiku-4-5": (1.00, 5.00),
 }
+
+#: Cache writes cost ~1.25x the input rate; cache reads ~0.1x. Applied so that
+#: cost_usd stays a measured number once caching is on.
+CACHE_WRITE_MULTIPLIER = 1.25
+CACHE_READ_MULTIPLIER = 0.10
 
 MAX_TOKENS = 16000
 
@@ -58,6 +63,11 @@ class ExtractionCall:
     result: ExtractionResult | None
     input_tokens: int = 0
     output_tokens: int = 0
+    #: Tokens written to the prompt cache on this call (first call of a cache window).
+    cache_write_tokens: int = 0
+    #: Tokens served from the prompt cache. If this stays 0 across repeated calls,
+    #: something in the cached prefix is varying -- find it rather than shrug.
+    cache_read_tokens: int = 0
     latency_ms: int = 0
     cost_usd: float = 0.0
     escalated: bool = False
@@ -101,20 +111,41 @@ class ExtractionOutcome:
         return any(c.escalated for c in self.calls)
 
 
-def compute_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Cost of one call. Unknown models cost 0.0 and say so rather than guessing."""
+def compute_cost_usd(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_write_tokens: int = 0,
+    cache_read_tokens: int = 0,
+) -> float:
+    """Cost of one call. Unknown models cost 0.0 and say so rather than guessing.
+
+    Cached tokens are billed at their own rates, so a call that reads a large cached
+    prefix is genuinely cheap and the recorded cost reflects that rather than pretending
+    every input token cost full price.
+    """
     rates = PRICING_USD_PER_MTOK.get(model)
     if rates is None:
         log.warning("unknown_model_pricing", model=model)
         return 0.0
     input_rate, output_rate = rates
-    return (input_tokens * input_rate + output_tokens * output_rate) / 1_000_000
+    total = (
+        input_tokens * input_rate
+        + output_tokens * output_rate
+        + cache_write_tokens * input_rate * CACHE_WRITE_MULTIPLIER
+        + cache_read_tokens * input_rate * CACHE_READ_MULTIPLIER
+    )
+    return total / 1_000_000
 
 
 class ExtractionProvider(Protocol):
-    """Turns a rendered prompt into a validated :class:`ExtractionResult`."""
+    """Turns a split prompt into a validated :class:`ExtractionResult`.
 
-    def extract(self, prompt: str, model: str) -> ExtractionCall: ...
+    The prompt arrives already split into a stable ``system`` block and a per-document
+    ``user`` block, because where the split falls determines whether the cache hits.
+    """
+
+    def extract(self, system: str, user: str, model: str) -> ExtractionCall: ...
 
 
 class AnthropicExtractionProvider:
@@ -137,13 +168,13 @@ class AnthropicExtractionProvider:
             )
         return self._client
 
-    def extract(self, prompt: str, model: str) -> ExtractionCall:
+    def extract(self, system: str, user: str, model: str) -> ExtractionCall:
         import anthropic
 
         call = ExtractionCall(
             model=model,
-            prompt_name=EXTRACT_EVENT_V1.name,
-            prompt_version=EXTRACT_EVENT_V1.version,
+            prompt_name=EXTRACT_EVENT_V2.name,
+            prompt_version=EXTRACT_EVENT_V2.version,
             result=None,
         )
         client = self._get_client()
@@ -153,7 +184,16 @@ class AnthropicExtractionProvider:
             response = client.messages.parse(  # type: ignore[attr-defined]
                 model=model,
                 max_tokens=MAX_TOKENS,
-                messages=[{"role": "user", "content": prompt}],
+                # The stable half is marked cacheable; the document follows it in the
+                # user message, after the breakpoint.
+                system=[
+                    {
+                        "type": "text",
+                        "text": system,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=[{"role": "user", "content": user}],
                 output_format=ExtractionResult,
             )
         except anthropic.APIStatusError as exc:
@@ -174,7 +214,15 @@ class AnthropicExtractionProvider:
         if usage is not None:
             call.input_tokens = getattr(usage, "input_tokens", 0) or 0
             call.output_tokens = getattr(usage, "output_tokens", 0) or 0
-        call.cost_usd = compute_cost_usd(model, call.input_tokens, call.output_tokens)
+            call.cache_write_tokens = getattr(usage, "cache_creation_input_tokens", 0) or 0
+            call.cache_read_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
+        call.cost_usd = compute_cost_usd(
+            model,
+            call.input_tokens,
+            call.output_tokens,
+            call.cache_write_tokens,
+            call.cache_read_tokens,
+        )
 
         # A refusal is an outcome to record, not an exception to swallow.
         if getattr(response, "stop_reason", None) == "refusal":
@@ -197,14 +245,18 @@ class ScriptedExtractionProvider:
 
     def __init__(self, results: list[ExtractionResult | Exception | None]) -> None:
         self._results = list(results)
+        #: (model, user_text) per call.
         self.calls_made: list[tuple[str, str]] = []
+        #: The system block each call was given, so a test can assert it never varies.
+        self.systems_sent: list[str] = []
 
-    def extract(self, prompt: str, model: str) -> ExtractionCall:
-        self.calls_made.append((model, prompt))
+    def extract(self, system: str, user: str, model: str) -> ExtractionCall:
+        self.calls_made.append((model, user))
+        self.systems_sent.append(system)
         call = ExtractionCall(
             model=model,
-            prompt_name=EXTRACT_EVENT_V1.name,
-            prompt_version=EXTRACT_EVENT_V1.version,
+            prompt_name=EXTRACT_EVENT_V2.name,
+            prompt_version=EXTRACT_EVENT_V2.version,
             result=None,
             input_tokens=1000,
             output_tokens=250,
@@ -294,7 +346,7 @@ def extract_document(
 
     outcome = ExtractionOutcome()
 
-    prompt, _template = render_extraction_prompt(
+    system_text, user_text, _template = render_extraction_v2(
         source_name=source_name,
         publisher=publisher,
         published_at=published_at,
@@ -303,7 +355,7 @@ def extract_document(
         document_text=document_text,
     )
 
-    first = provider.extract(prompt, DEFAULT_MODEL)
+    first = provider.extract(system_text, user_text, DEFAULT_MODEL)
     outcome.calls.append(first)
 
     failures = _count_failures(first, verify_citations)
@@ -315,12 +367,16 @@ def extract_document(
             model=first.model,
             escalated=False,
             cost_usd=round(first.cost_usd, 6),
+            cache_read_tokens=first.cache_read_tokens,
+            cache_write_tokens=first.cache_write_tokens,
         )
         return outcome
 
     log.info("extraction_escalating", reason=reason, to_model=ESCALATION_MODEL)
 
-    escalation_prompt, _ = render_extraction_prompt(
+    # The system block is unchanged, so the escalation call reads the same cached
+    # prefix; only the user half differs.
+    escalation_system, escalation_user, _ = render_extraction_v2(
         source_name=source_name,
         publisher=publisher,
         published_at=published_at,
@@ -329,7 +385,7 @@ def extract_document(
         document_text=document_text,
         escalation_reason=reason,
     )
-    second = provider.extract(escalation_prompt, ESCALATION_MODEL)
+    second = provider.extract(escalation_system, escalation_user, ESCALATION_MODEL)
     second.escalated = True
     outcome.calls.append(second)
 

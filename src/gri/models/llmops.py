@@ -84,6 +84,11 @@ class Extraction(Base):
 
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
+    #: Prompt-cache accounting. Stored so the saving from caching is a measured
+    #: number rather than an assumption, and so a cache that silently stops hitting
+    #: is visible in the data instead of only in the bill.
+    cache_write_tokens: Mapped[int | None] = mapped_column(Integer)
+    cache_read_tokens: Mapped[int | None] = mapped_column(Integer)
     cost_usd: Mapped[float | None] = mapped_column(Numeric(10, 6))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
 

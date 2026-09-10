@@ -359,6 +359,8 @@ def _record_extractions(
                 ),
                 input_tokens=call.input_tokens,
                 output_tokens=call.output_tokens,
+                cache_write_tokens=call.cache_write_tokens,
+                cache_read_tokens=call.cache_read_tokens,
                 cost_usd=call.cost_usd,
                 latency_ms=call.latency_ms,
                 raw_output=call.result.model_dump(mode="json") if call.result else None,

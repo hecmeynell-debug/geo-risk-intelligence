@@ -157,12 +157,91 @@ Pay particular attention to copying quotes exactly as they appear in the text ab
 """,
 )
 
-REGISTRY: dict[tuple[str, str], PromptTemplate] = {
-    (p.name, p.version): p for p in (EXTRACT_EVENT_V1, ESCALATION_SUFFIX_V1)
+# --------------------------------------------------------------------------------------
+# v2: the same instructions, split at a cache breakpoint
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CachedPromptTemplate:
+    """A prompt split into a cacheable prefix and a per-document remainder.
+
+    Prompt caching is a *prefix* match: any byte change in the cached block invalidates
+    it. So the split has to be exact -- the system half must contain nothing that varies
+    per document, or the cache never hits and the only effect is added complexity.
+
+    ``hash`` covers both halves, so editing either without bumping the version is caught
+    by ``scripts/check_prompts.py`` (ADR-0001 D6).
+    """
+
+    name: str
+    version: str
+    purpose: str
+    #: Stable across every call. Sent as a cached ``system`` block.
+    system_template: str
+    #: Varies per document. Sent as the user message, after the breakpoint.
+    user_template: str
+
+    @property
+    def hash(self) -> str:
+        return sha256_text(self.system_template + "" + self.user_template)
+
+    def render_system(self) -> str:
+        return self.system_template.format(
+            taxonomy=_TAXONOMY, sectors=_SECTORS, severities=_SEVERITIES
+        )
+
+    def render_user(self, **kwargs: object) -> str:
+        return self.user_template.format(**kwargs)
+
+
+#: Hash separator, so ("ab", "c") and ("a", "bc") cannot collide.
+SPLIT_SENTINEL = chr(30)
+
+#: Where v1 stops being stable instructions and starts being this document. Splitting
+#: v1's own template guarantees v2's wording is byte-identical rather than merely
+#: careful -- a reworded v2 would confound the cost comparison with a behaviour change.
+_V1_SPLIT_AT = EXTRACT_EVENT_V1.template.index(chr(10) + "---" + chr(10) + chr(10) + "Source: ")
+_V1_INSTRUCTIONS = EXTRACT_EVENT_V1.template[:_V1_SPLIT_AT]
+_V1_DOCUMENT_BLOCK = EXTRACT_EVENT_V1.template[_V1_SPLIT_AT:]
+
+
+#: v2 is v1 restructured, not rewritten. The instruction text is taken verbatim from
+#: EXTRACT_EVENT_V1 -- only *where* it is sent changed, so a cost comparison between the
+#: two versions is not confounded by a wording change.
+#:
+#: Measured motivation (ADR-0002): a 228-character notice cost 5,270 input tokens because
+#: this block is ~5,000 tokens of identical bytes resent on every call.
+EXTRACT_EVENT_V2 = CachedPromptTemplate(
+    name="extract_event",
+    version="v2",
+    purpose=(
+        "Extract one disruption event from one source document, with verbatim citations."
+        " Identical wording to v1, split at a cache breakpoint."
+    ),
+    system_template=_V1_INSTRUCTIONS,
+    user_template=_V1_DOCUMENT_BLOCK,
+)
+
+
+#: Same wording as v1. Under v2 it is appended to the USER message rather than the
+#: whole prompt, because the escalation reason varies per call and anything volatile
+#: in the cached prefix would invalidate the cache on every request.
+ESCALATION_SUFFIX_V2 = PromptTemplate(
+    name="extract_event_escalation_suffix",
+    version="v2",
+    purpose="Appended to the user message on the Opus pass when the first extraction was weak.",
+    template=ESCALATION_SUFFIX_V1.template,
+)
+
+#: Every released prompt, of either shape. check_prompts.py hashes them all.
+REGISTRY: dict[tuple[str, str], PromptTemplate | CachedPromptTemplate] = {
+    (p.name, p.version): p
+    for p in (EXTRACT_EVENT_V1, ESCALATION_SUFFIX_V1, EXTRACT_EVENT_V2, ESCALATION_SUFFIX_V2)
 }
 
 
-def get_prompt(name: str, version: str) -> PromptTemplate:
+def get_prompt(name: str, version: str) -> PromptTemplate | CachedPromptTemplate:
     try:
         return REGISTRY[(name, version)]
     except KeyError:
@@ -195,3 +274,32 @@ def render_extraction_prompt(
     if escalation_reason:
         rendered += ESCALATION_SUFFIX_V1.template.format(escalation_reason=escalation_reason)
     return rendered, base
+
+
+def render_extraction_v2(
+    *,
+    source_name: str,
+    publisher: str,
+    published_at: str,
+    url: str,
+    title: str,
+    document_text: str,
+    escalation_reason: str | None = None,
+) -> tuple[str, str, CachedPromptTemplate]:
+    """Render v2 as ``(system_text, user_text, template)``.
+
+    ``system_text`` must be byte-identical on every call for the cache to hit -- it is
+    built only from the taxonomy constants, never from the document.
+    """
+    system_text = EXTRACT_EVENT_V2.render_system()
+    user_text = EXTRACT_EVENT_V2.render_user(
+        source_name=source_name,
+        publisher=publisher,
+        published_at=published_at,
+        url=url,
+        title=title,
+        document_text=document_text,
+    )
+    if escalation_reason:
+        user_text += ESCALATION_SUFFIX_V2.template.format(escalation_reason=escalation_reason)
+    return system_text, user_text, EXTRACT_EVENT_V2

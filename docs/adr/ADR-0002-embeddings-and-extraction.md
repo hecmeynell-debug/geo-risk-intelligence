@@ -214,6 +214,56 @@ the other two.**
 
 ---
 
+## Prompt caching, measured (2026-09-10)
+
+The finding above ("the prompt dominates cost") was acted on: `EXTRACT_EVENT_V2` is v1
+split at a cache breakpoint. The instruction text is taken verbatim from v1 by slicing
+v1's own template, so the two halves concatenate back to v1 byte-for-byte and a cost
+comparison is not confounded by a wording change. v1 stays registered, so historical
+measurements still refer to a prompt that exists.
+
+Measured on the same synthetic notice, Sonnet 5, input side only (output tokens varied
+between runs and would otherwise muddy the comparison):
+
+| | Input tokens | Input cost | vs uncached |
+|---|---|---|---|
+| v1, uncached | 5,354 | $0.010708 | — |
+| v2, cold (cache write) | 251 + 5,104 written | $0.013262 | **+24%** |
+| v2, warm (cache read) | 251 + 5,104 read | $0.001523 | **-86%** |
+
+**Caching is not free, and for a single isolated call it is a loss.** A cache write costs
+~1.25x the input rate; a read costs ~0.1x. Break-even is **two calls inside one cache
+window**:
+
+| Calls in window | Cached | Uncached | |
+|---|---|---|---|
+| 1 | $0.013262 | $0.010708 | more expensive |
+| 2 | $0.014785 | $0.021416 | cheaper |
+| 4 | $0.017830 | $0.042832 | much cheaper |
+
+### The caveat that matters for this workload
+
+The default `ephemeral` TTL is **5 minutes**, and the polling cadence is **30-60 minutes**.
+So the cache helps *within* a tick — where a feed yields several new documents processed
+back to back — and is cold again by the next tick. A tick that yields exactly one new
+document pays the write premium and gets nothing back.
+
+Whether caching is a net win therefore depends on documents-per-tick, which is a property
+of the sources and is currently unmeasured because no source is enabled. It is very
+likely positive (feeds usually deliver in batches), but it is not proven, and it would be
+dishonest to quote the 86% figure as the expected saving.
+
+**Not done, deliberately:** a 1-hour cache TTL (`{"type": "ephemeral", "ttl": "1h"}`)
+would keep the cache warm across polls and probably suits this cadence far better. It is
+not implemented because the 1-hour write multiplier is not in
+`PRICING_USD_PER_MTOK`, and shipping a guessed rate would make `cost_usd` a fiction —
+the one thing the telemetry exists to prevent. Look the rate up, then decide.
+
+`extractions` now records `cache_write_tokens` and `cache_read_tokens`, so once sources
+are enabled the real distribution is measurable rather than argued about.
+
+---
+
 ## Revisit triggers
 
 Recorded so that "we should look at this again" is a condition, not a feeling:
@@ -222,7 +272,9 @@ Recorded so that "we should look at this again" is a condition, not a feeling:
 |---|---|
 | Escalation rate above ~30% of documents | Drop the cascade; use one model |
 | Abstention-triggered escalations rarely change the outcome | Remove that trigger, keep the other two |
-| Input cost dominated by the static prompt | Split at a cache breakpoint and release prompt v2 |
+| Input cost dominated by the static prompt | Done: prompt v2 splits at a cache breakpoint |
+| Documents-per-tick averages below ~2 | Caching is a net loss at that volume; reconsider, or move to a 1h TTL |
+| Deciding on a 1h cache TTL | Get the 1h write multiplier from the pricing page first; do not guess it |
 | Citation validity below 95% on the labelled set | Investigate before shipping any prompt change |
 | Chunk count above ~1M, or ANN recall degrading | Revisit pgvector index strategy (ADR-0001 D3) |
 | Non-English sources become material | Revisit the embedding model — `bge-small` is English-only |

@@ -17,6 +17,9 @@ Usage::
 
 ``--fabricate`` swaps in a document that does not support the obvious conclusion, to see
 whether the model abstains or invents — the behaviour the whole project is built around.
+
+Run it twice in quick succession to watch the prompt cache warm and then hit: the first
+call reports ``cache write``, the second ``cache read``.
 """
 
 from __future__ import annotations
@@ -105,6 +108,7 @@ def main() -> int:
         print(f"\nCall {index}: {call.model}{marker}")
         print(f"  prompt        {call.prompt_name} {call.prompt_version}")
         print(f"  tokens        in={call.input_tokens} out={call.output_tokens}")
+        print(f"  cache         write={call.cache_write_tokens} read={call.cache_read_tokens}")
         print(f"  latency       {call.latency_ms} ms")
         print(f"  cost          ${call.cost_usd:.6f}")
         if call.request_id:

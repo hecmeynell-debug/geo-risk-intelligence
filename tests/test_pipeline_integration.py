@@ -331,9 +331,13 @@ class TestEscalationCascade:
         assert len(extractions) == 2
         assert {e.model_name for e in extractions} == {DEFAULT_MODEL, ESCALATION_MODEL}
         for row in extractions:
-            assert row.prompt_version == "v1"
+            assert row.prompt_version == "v2"
             assert row.input_tokens and row.output_tokens
             assert row.cost_usd is not None and float(row.cost_usd) > 0
+            # Cache accounting is persisted even when zero, so a cache that stops
+            # hitting shows up in the data rather than only in the bill.
+            assert row.cache_write_tokens is not None
+            assert row.cache_read_tokens is not None
 
     def test_escalation_prompt_explains_why(
         self, session: Session, source: Source, embedder: DeterministicFakeProvider
