@@ -45,6 +45,15 @@ def main() -> int:
             violations.append(f"{source.slug}: stores full text with no terms review (NG-2)")
         if source.enabled and not source.terms_url:
             violations.append(f"{source.slug}: enabled with no terms_url recorded")
+        if source.enabled and not source.endpoint_verified:
+            violations.append(f"{source.slug}: enabled with an unverified endpoint")
+        if source.enabled and not source.format_confirmed:
+            violations.append(
+                f"{source.slug}: enabled with an unconfirmed parse -- the adapter config"
+                " is still the registry's starting hypothesis"
+            )
+        if source.store_full_text and not source.terms_url:
+            violations.append(f"{source.slug}: stores full text with no terms_url recorded")
 
         if source.enabled and source.robots_checked_at is None:
             warnings.append(f"{source.slug}: robots.txt has never been checked")

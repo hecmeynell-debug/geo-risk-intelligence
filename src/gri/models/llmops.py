@@ -96,13 +96,11 @@ class Extraction(Base):
 
     __table_args__ = (
         one_of("outcome", EXTRACTION_OUTCOMES, "outcome"),
-        CheckConstraint(
-            "citations_failed <= citations_checked", name="ck_extractions_failed_le_checked"
-        ),
-        CheckConstraint("citations_checked >= 0", name="ck_extractions_citations_non_negative"),
+        CheckConstraint("citations_failed <= citations_checked", name="failed_le_checked"),
+        CheckConstraint("citations_checked >= 0", name="citations_non_negative"),
         # An extraction that produced an event must have passed both gates.
         CheckConstraint(
             "event_id IS NULL OR (schema_valid AND citation_valid)",
-            name="ck_extractions_published_requires_valid_schema_and_citations",
+            name="published_requires_valid_schema_and_citations",
         ),
     )

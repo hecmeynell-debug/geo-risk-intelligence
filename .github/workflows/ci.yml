@@ -61,8 +61,28 @@ jobs:
       - name: Unit and integration tests
         run: pytest --cov=gri --cov-report=term-missing
 
+      - name: Ingestion is idempotent and provenance-tracked
+        # The Phase 1 gate, named explicitly so a regression is obvious in the CI log
+        # rather than buried in the full suite.
+        run: pytest tests/test_ingestion_integration.py -v -k "Idempotency or Provenance"
+
+      - name: Seed the source registry
+        run: python scripts/seed_sources.py
+
       - name: Source terms policy
+        # Must pass with the registry seeded: every candidate is disabled and unreviewed,
+        # so any enabled-without-review row is a genuine NG-2 violation.
         run: python scripts/check_source_terms.py
+
+      - name: No source ships enabled
+        run: |
+          set -euo pipefail
+          enabled=$(psql "postgresql://gri:gri@localhost:5432/gri" -tAc \
+            "SELECT count(*) FROM sources WHERE enabled")
+          echo "enabled sources: $enabled"
+          test "$enabled" = "0"
+        env:
+          PGPASSWORD: gri
 
   stack:
     name: Compose stack comes up healthy

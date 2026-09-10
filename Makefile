@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose
 
-.PHONY: help up down logs migrate revision test test-unit lint fmt typecheck check reset health
+.PHONY: help up down logs migrate revision test test-unit lint fmt typecheck check reset health seed-sources sources
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -29,6 +29,12 @@ migrate: ## Apply migrations inside the stack
 
 revision: ## Autogenerate a migration: make revision m="add x"
 	$(COMPOSE) run --rm migrate alembic revision --autogenerate -m "$(m)"
+
+seed-sources: ## Register the candidate sources (all disabled and unreviewed)
+	$(COMPOSE) run --rm migrate python scripts/seed_sources.py
+
+sources: ## Show each source and whether it has cleared the review gates
+	$(COMPOSE) run --rm migrate python scripts/review_source_terms.py --list
 
 test: ## Run all tests, including live-database integration tests
 	$(COMPOSE) run --rm -e GRI_DATABASE_URL=postgresql+psycopg://gri:gri@db:5432/gri \

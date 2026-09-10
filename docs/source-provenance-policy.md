@@ -39,6 +39,20 @@ A source is eligible only if **all** of the following are true:
 **An adapter ships with `sources.enabled = false` and cannot be turned on until a terms
 review is recorded.** This is the mechanical enforcement of NG-2.
 
+Enabling a source requires **three** independent things to be true, all enforced by a
+database `CHECK` (`ck_sources_enabled_requires_terms_review` and
+`ck_sources_enabled_requires_verified_adapter`):
+
+1. **A terms review is recorded** — a human read the terms and wrote down what they say.
+2. **`endpoint_verified`** — a human confirmed the feed URL is the right one and exists.
+3. **`format_confirmed`** — a human looked at a real response and confirmed the adapter
+   configuration actually parses it.
+
+Points 2 and 3 exist because the registry's adapter configuration is a *starting
+hypothesis*, written from the publisher's documented shape rather than from an observed
+response. Shipping an enabled source on an unconfirmed parse would mean silently storing
+whatever the guess happened to extract. See `src/gri/ingestion/registry.py`.
+
 To enable a source, a human must record in the `sources` row:
 
 | Field | Meaning |
@@ -52,8 +66,24 @@ To enable a source, a human must record in the `sources` row:
 | `store_full_text` | Whether we are permitted to store the full body, or link + metadata only |
 
 `scripts/check_source_terms.py` fails CI if any row has `enabled = true` while
-`terms_reviewed_at` is null. The database also carries a `CHECK` constraint to the same
-effect, so an unreviewed source cannot be enabled even by direct SQL.
+`terms_reviewed_at` is null, or while the endpoint or format is unverified. The database
+carries `CHECK` constraints to the same effect, so an unreviewed source cannot be enabled
+even by direct SQL.
+
+The operator flow is `scripts/review_source_terms.py`:
+
+```bash
+python scripts/review_source_terms.py --list          # what is registered, and its state
+
+python scripts/review_source_terms.py --slug <slug> \
+    --reviewer "A Human" --terms-url <url> --note "what the terms actually say"
+
+python scripts/review_source_terms.py --slug <slug> \
+    --endpoint-verified --format-confirmed --store-full-text --enable
+```
+
+The script refuses to enable a source that has not cleared all three gates, and reports
+which ones are outstanding rather than emitting a constraint violation.
 
 ---
 
@@ -115,12 +145,31 @@ this domain.
 
 ### Hashing rules
 
-- `raw_hash` = SHA-256 over the raw response body bytes.
+One HTTP response usually contains **many** items, so hashes are computed per item rather
+than per response — a feed-level hash would make every item in a feed indistinguishable.
+
+- `raw_hash` = SHA-256 over the item's text exactly as published, before normalisation.
 - `content_hash` = SHA-256 over `clean_text` after normalisation: Unicode NFKC, CRLF to
-  LF, collapse runs of whitespace, strip leading/trailing whitespace.
-- Deduplication is on `(source_id, content_hash)`. The same item republished byte-for-byte
-  is a duplicate. The same item with edited text is a **new document** that may become an
-  **update** to an existing event - that distinction is Phase 2's job, not ingestion's.
+  LF, invisible/bidirectional control characters removed, runs of whitespace collapsed to
+  a single space, leading/trailing whitespace stripped.
+- Where `store_full_text = false` there is no body to hash, so **both** hashes fall back
+  to the normalised composite of title, URL, and publication time, joined by a separator
+  that cannot occur in normalised text. Such a document is still deduplicable but can
+  never yield a quotable citation.
+- The response itself stays traceable through `fetch_run_id` and the `extra` column,
+  which record which `ingestion_runs` row and HTTP response the item came from.
+
+Deduplication is on `(source_id, content_hash)`, enforced by a unique constraint — so
+idempotency holds against a concurrent writer, not merely against a tidy sequential run.
+The same item republished unchanged is a duplicate; the same item **re-rendered** with
+different whitespace or markup is also a duplicate, because normalisation removes that
+difference. The same item with genuinely **edited text** is a new document that may
+become an *update* to an existing event — that distinction is Phase 2's job, not
+ingestion's.
+
+Normalisation is therefore load-bearing twice over: it decides what counts as a
+duplicate, and (from Phase 2) it is the text quotes are verified against. Changing
+`gri.ingestion.normalise` is a corpus-wide migration, not a tweak.
 
 ---
 

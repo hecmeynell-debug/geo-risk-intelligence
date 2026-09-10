@@ -75,15 +75,37 @@ class TestSourceTermsGate:
         with pytest.raises(IntegrityError):
             _source(session, enabled=True)
 
-    def test_source_can_be_enabled_once_terms_are_reviewed(self, session: Session) -> None:
+    def test_source_can_be_enabled_once_reviewed_and_verified(self, session: Session) -> None:
         source = _source(
             session,
             enabled=True,
             terms_reviewed_at=datetime.now(UTC),
             terms_reviewed_by="a human",
             terms_url="https://example.invalid/terms",
+            endpoint_verified=True,
+            format_confirmed=True,
         )
         assert source.enabled is True
+
+    def test_reviewed_terms_alone_do_not_permit_enabling(self, session: Session) -> None:
+        """An enabled source must also run on a confirmed endpoint and a confirmed parse,
+        not on the registry's starting hypothesis."""
+        with pytest.raises(IntegrityError):
+            _source(
+                session,
+                enabled=True,
+                terms_reviewed_at=datetime.now(UTC),
+                terms_reviewed_by="a human",
+                terms_url="https://example.invalid/terms",
+                endpoint_verified=False,
+                format_confirmed=False,
+            )
+
+    def test_verified_adapter_without_terms_review_cannot_be_enabled(
+        self, session: Session
+    ) -> None:
+        with pytest.raises(IntegrityError):
+            _source(session, enabled=True, endpoint_verified=True, format_confirmed=True)
 
     def test_full_text_storage_cannot_be_turned_on_without_a_review(self, session: Session) -> None:
         with pytest.raises(IntegrityError):

@@ -102,7 +102,7 @@ class RawDocument(Base):
         sha256_hex("content_hash", "content_hash_is_sha256"),
         CheckConstraint(
             "NOT is_tombstoned OR (raw_body IS NULL AND clean_text IS NULL)",
-            name="ck_raw_documents_tombstoned_has_no_content",
+            name="tombstoned_has_no_content",
         ),
     )
 
@@ -136,10 +136,10 @@ class DocumentChunk(Base):
         UniqueConstraint(
             "document_id", "chunk_index", name="uq_document_chunks_document_id_chunk_index"
         ),
-        CheckConstraint("char_end > char_start", name="ck_document_chunks_offsets_ordered"),
-        CheckConstraint("char_start >= 0", name="ck_document_chunks_offsets_non_negative"),
+        CheckConstraint("char_end > char_start", name="offsets_ordered"),
+        CheckConstraint("char_start >= 0", name="offsets_non_negative"),
         CheckConstraint(
             "embedding IS NULL OR embedding_model IS NOT NULL",
-            name="ck_document_chunks_embedding_records_model",
+            name="embedding_records_model",
         ),
     )

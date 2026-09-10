@@ -1,11 +1,15 @@
 """Scheduled worker entry point.
 
-Phase 0 is a heartbeat that proves the container starts, reaches the database, and finds
-the schema migrated. Phase 1 replaces the body of the loop with source polling.
+Polls every enabled source whose interval has elapsed, then sleeps. Phase 2 adds
+processing of the documents this produces.
 
 No Redis, no Celery: at a 30-60 minute cadence over a handful of sources, an in-process
-loop plus Postgres row locks is sufficient (ADR-0001 D4). Adding a broker before there is
-a demonstrated need would violate NG-7.
+loop plus ``FOR UPDATE SKIP LOCKED`` is sufficient (ADR-0001 D4). Adding a broker before
+there is a demonstrated need would violate NG-7.
+
+With no source enabled -- the state Phase 1 ships in -- each tick finds nothing due and
+logs that it did nothing. That is correct, not broken: sources stay off until a human
+records a terms review.
 """
 
 from __future__ import annotations
@@ -13,17 +17,24 @@ from __future__ import annotations
 import signal
 import sys
 import time
+from datetime import UTC, datetime
 from types import FrameType
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from gri.config import get_settings
 from gri.db import check_database, session_scope
+from gri.ingestion.http import HttpFetcher
+from gri.ingestion.runner import ingest_due_sources
 from gri.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
 
 _shutdown = False
+
+#: How often the loop wakes to look for due sources. Shorter than any source's poll
+#: interval, because it is only a check -- the per-source interval decides what runs.
+TICK_SECONDS = 60
 
 
 def _handle_signal(signum: int, _frame: FrameType | None) -> None:
@@ -32,12 +43,22 @@ def _handle_signal(signum: int, _frame: FrameType | None) -> None:
     _shutdown = True
 
 
-def run_once() -> dict[str, object]:
-    """One tick. Phase 0: verify the database is reachable and migrated."""
+def run_once(fetcher: HttpFetcher) -> dict[str, int]:
+    """One scheduler tick."""
+    now = datetime.now(UTC)
+    totals = {"sources_run": 0, "items_new": 0, "items_duplicate": 0, "items_failed": 0}
+
     with session_scope() as session:
-        status = check_database(session)
-    log.info("worker_tick", **status)
-    return status
+        runs = ingest_due_sources(session, fetcher, now)
+        totals["sources_run"] = len(runs)
+        for run in runs:
+            totals["items_new"] += run.items_new
+            totals["items_duplicate"] += run.items_duplicate
+            totals["items_failed"] += run.items_failed
+
+    if totals["sources_run"]:
+        log.info("tick_complete", **totals)
+    return totals
 
 
 def main() -> int:
@@ -47,26 +68,24 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
-    log.info(
-        "worker_starting",
-        environment=settings.environment,
-        poll_interval_seconds=settings.poll_interval_seconds,
-    )
+    log.info("worker_starting", environment=settings.environment, tick_seconds=TICK_SECONDS)
 
-    while not _shutdown:
-        try:
-            run_once()
-        except SQLAlchemyError as exc:
-            # Keep running: a database blip should not take the worker down, but it must
-            # be visible in the logs.
-            log.error("worker_tick_failed", error=str(exc))
+    with session_scope() as session:
+        log.info("worker_database", **check_database(session))
 
-        # Sleep in short slices so SIGTERM is honoured promptly rather than after a
-        # full poll interval.
-        for _ in range(settings.poll_interval_seconds):
-            if _shutdown:
-                break
-            time.sleep(1)
+    with HttpFetcher() as fetcher:
+        while not _shutdown:
+            try:
+                run_once(fetcher)
+            except SQLAlchemyError as exc:
+                # A database blip should not take the worker down, but it must be visible.
+                log.error("tick_failed", error=str(exc))
+
+            # Sleep in slices so SIGTERM is honoured promptly rather than a tick later.
+            for _ in range(TICK_SECONDS):
+                if _shutdown:
+                    break
+                time.sleep(1)
 
     log.info("worker_stopped")
     return 0

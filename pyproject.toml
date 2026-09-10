@@ -21,6 +21,11 @@ dependencies = [
     "pgvector>=0.3.6",
     "httpx>=0.27",
     "structlog>=24.4",
+    # Ingestion. feedparser handles the long tail of real-world RSS/Atom malformation;
+    # selectolax parses notice HTML without pulling in a C toolchain at build time.
+    "feedparser>=6.0.11",
+    "selectolax>=0.3.21",
+    "python-dateutil>=2.9",
 ]
 
 [project.optional-dependencies]
@@ -60,6 +65,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
 "src/gri/api/*.py" = ["B008"]
 # Assertions read better with the subject first, whichever side ruff prefers.
 "tests/*.py" = ["SIM300"]
+# Fixture payloads are XML and HTML held verbatim; rewrapping them would change what is
+# being tested.
+"tests/fixtures.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -68,3 +76,9 @@ plugins = ["pydantic.mypy"]
 warn_unused_ignores = true
 warn_redundant_casts = true
 disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# feedparser ships no type information. It is used only behind RssAdapter, whose own
+# signature is typed, so the untyped boundary is one module wide.
+module = ["feedparser.*"]
+ignore_missing_imports = true

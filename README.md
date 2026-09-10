@@ -8,9 +8,11 @@ structured event records where **every claim is traceable to a quote verified ag
 source text we retrieved**. Records with weak, conflicting, or incomplete evidence are
 routed to a human review queue rather than published as established.
 
-> **Status: Phase 0 (Foundations).** The stack, schema, and constraints are in place. No
-> sources are ingested yet and there are no events in the database. See
-> [Roadmap](#roadmap).
+> **Status: Phase 1 (Ingestion & Raw Store) complete.** The stack, schema, adapters, and
+> the provenance-tracked raw document store are in place, and repeated ingestion is
+> idempotent. **No source is enabled**, so nothing is being fetched and the database holds
+> no documents — enabling a source requires a human to record a terms review first. See
+> [Sources](#sources-nothing-is-enabled) and [Roadmap](#roadmap).
 
 ---
 
@@ -124,6 +126,39 @@ plainly than imply the check is stronger than it is.
 
 ---
 
+## Sources: nothing is enabled
+
+Ten candidate sources are registered — maritime authorities, canal authorities, energy
+regulators, and public sanctions lists. **All ten are disabled, unreviewed, and
+unverified.** Nobody has read any publisher's terms yet, and this repository makes no
+claim that any of them permits our use.
+
+Enabling one requires three separate things to be true, each enforced by a database
+`CHECK`:
+
+| Gate | Meaning |
+|---|---|
+| terms review recorded | A human read the terms and wrote down what they say |
+| `endpoint_verified` | A human confirmed the feed URL is right and exists |
+| `format_confirmed` | A human looked at a real response and confirmed the parse |
+
+```bash
+make sources                # what is registered, and its state
+make seed-sources           # register the candidates (all disabled)
+```
+
+The third gate exists because the adapter configuration in
+`src/gri/ingestion/registry.py` is a **starting hypothesis**, written from each
+publisher's documented shape rather than from an observed response. Ten hand-written
+parsers for feeds nobody has looked at would be ten guesses wearing a lab coat. Instead
+there are three real, tested adapter engines — RSS/Atom, JSON API, HTML notices — and the
+per-source field mapping is one reviewable block of configuration that a human corrects
+during terms review.
+
+A block is treated as an answer, not an obstacle: a `401`, `403`, `451`, or a
+robots.txt disallow disables the adapter and flags the source for re-review. It is never
+retried and the request is never varied to get around it.
+
 ## Non-goals, and how they are enforced
 
 The full list is in [CONSTRAINTS.md](CONSTRAINTS.md). Each one has a mechanical
@@ -131,7 +166,8 @@ enforcement point rather than only a policy statement:
 
 | Non-goal | Enforcement |
 |---|---|
-| No non-public or restricted sources | A source cannot be `enabled`, and its full text cannot be stored, unless `terms_reviewed_at` is set — a database `CHECK`, plus a CI audit |
+| No non-public or restricted sources | A source cannot be `enabled` unless `terms_reviewed_at` is set **and** its endpoint and parse are verified — database `CHECK`s, plus a CI audit |
+| A block is an answer | `401`/`403`/`451` or a robots.txt disallow raises `SourceBlocked`, which disables the source. No retry, no varied request |
 | No individual targeting | `entities.entity_type` has **no `person` member**; a `CHECK` constraint rejects it, so person-level records are unrepresentable |
 | No unverified claims as fact | An event cannot be published from an extraction unless `schema_valid AND citation_valid` — a database `CHECK` |
 | No untraceable assessment | Every event needs verified rows in `event_evidence`; `verified = true` requires a recorded verification method and timestamp |
@@ -154,10 +190,10 @@ src/gri/
   models/            SQLAlchemy models -- sources, documents, events, evidence, llmops, eval
   api/               FastAPI app (health only in Phase 0)
   worker/            scheduled worker (heartbeat in Phase 0)
-  ingestion/         source adapters                          (Phase 1)
+  ingestion/         http, adapters, registry, normalise, store, runner
   processing/        chunk, embed, cluster, extract, verify   (Phase 2)
 migrations/          Alembic
-scripts/             CI guards: source terms audit, migration drift check
+scripts/             source registry seeding, terms review CLI, CI guards
 docs/adr/            architecture decision records
 tests/               unit tests, plus live-database constraint tests
 ```
@@ -169,7 +205,7 @@ tests/               unit tests, plus live-database constraint tests
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Foundations: Compose stack, schema, migrations, constraints, CI | **Complete** |
-| 1 | Ingestion and raw store: 5–10 adapters, provenance, idempotency | Not started |
+| 1 | Ingestion and raw store: adapters, provenance, idempotency | **Complete** |
 | 2 | Core pipeline: chunk, embed, cluster, extract, verify citations, API | Not started |
 | 3 | Product interface: feed, filters, evidence panel, briefing, review queue | Not started |
 | 4 | Evaluation and operations: labelled set, CI metrics gate, logging | Not started |

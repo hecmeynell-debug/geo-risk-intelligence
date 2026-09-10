@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -53,6 +53,28 @@ class Source(Base):
     #: and therefore this source can never produce quoted evidence.
     store_full_text: Mapped[bool] = mapped_column(nullable=False, default=False)
 
+    # -- Verification of the adapter itself ---------------------------------------------
+    #: A human confirmed this endpoint is correct and still exists.
+    endpoint_verified: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default=text("false")
+    )
+    #: A human looked at a real response and confirmed the adapter config parses it.
+    #: Without this, an enabled source would be running on a guessed field mapping.
+    format_confirmed: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default=text("false")
+    )
+
+    # -- Fetch state, for conditional requests and backoff ------------------------------
+    last_etag: Mapped[str | None] = mapped_column(String(256))
+    last_modified_header: Mapped[str | None] = mapped_column(String(128))
+    last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consecutive_failures: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    #: Set when the runner disables a source itself, e.g. after a block.
+    disabled_reason: Mapped[str | None] = mapped_column(Text)
+
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = created_at_col()
     updated_at: Mapped[datetime] = updated_at_col()
@@ -64,18 +86,25 @@ class Source(Base):
         one_of("retrieval_method", RETRIEVAL_METHODS, "retrieval_method"),
         CheckConstraint(
             "poll_interval_seconds BETWEEN 1800 AND 3600",
-            name="ck_sources_poll_interval_30_to_60_min",
+            name="poll_interval_30_to_60_min",
         ),
         # NG-2: no enabling a source nobody has reviewed the terms for.
         CheckConstraint(
             "NOT enabled OR terms_reviewed_at IS NOT NULL",
-            name="ck_sources_enabled_requires_terms_review",
+            name="enabled_requires_terms_review",
         ),
         # NG-2: no storing full body text without a review that permits it.
         CheckConstraint(
             "NOT store_full_text OR terms_reviewed_at IS NOT NULL",
-            name="ck_sources_full_text_requires_terms_review",
+            name="full_text_requires_terms_review",
         ),
+        # An enabled source must be running on a confirmed endpoint and a confirmed
+        # parse, not on the registry's starting hypothesis.
+        CheckConstraint(
+            "NOT enabled OR (endpoint_verified AND format_confirmed)",
+            name="enabled_requires_verified_adapter",
+        ),
+        CheckConstraint("consecutive_failures >= 0", name="consecutive_failures_non_negative"),
     )
 
 

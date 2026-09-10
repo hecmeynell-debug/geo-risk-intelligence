@@ -137,17 +137,17 @@ class Event(Base):
         one_of("status", EVENT_STATUSES, "status"),
         CheckConstraint(
             "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",
-            name="ck_events_confidence_in_unit_interval",
+            name="confidence_in_unit_interval",
         ),
         # CONSTRAINTS.md Section 6, trigger 4: high-impact claims always get a human.
         CheckConstraint(
             "severity NOT IN ('high', 'severe') OR requires_human_review",
-            name="ck_events_high_severity_requires_review",
+            name="high_severity_requires_review",
         ),
         # CONSTRAINTS.md Section 6, trigger 1.
         CheckConstraint(
             "confidence IS NULL OR confidence >= 0.60 OR requires_human_review",
-            name="ck_events_low_confidence_requires_review",
+            name="low_confidence_requires_review",
         ),
         Index("ix_events_event_date", "event_date"),
         Index("ix_events_event_type", "event_type"),
@@ -190,15 +190,15 @@ class EventLocation(Base):
         one_of("location_precision", LOCATION_PRECISIONS, "location_precision"),
         CheckConstraint(
             "latitude IS NULL OR (latitude >= -90 AND latitude <= 90)",
-            name="ck_event_locations_latitude_range",
+            name="latitude_range",
         ),
         CheckConstraint(
             "longitude IS NULL OR (longitude >= -180 AND longitude <= 180)",
-            name="ck_event_locations_longitude_range",
+            name="longitude_range",
         ),
         CheckConstraint(
             "country_code IS NULL OR country_code ~ '^[A-Z]{2}$'",
-            name="ck_event_locations_country_code_is_iso_alpha2",
+            name="country_code_is_iso_alpha2",
         ),
     )
 
@@ -316,16 +316,16 @@ class EventEvidence(Base):
     event: Mapped[Event] = relationship(back_populates="evidence")
 
     __table_args__ = (
-        CheckConstraint("length(btrim(quote)) > 0", name="ck_event_evidence_quote_not_blank"),
+        CheckConstraint("length(btrim(quote)) > 0", name="quote_not_blank"),
         CheckConstraint(
             "quote_char_start IS NULL OR quote_char_end IS NULL"
             " OR quote_char_end > quote_char_start",
-            name="ck_event_evidence_offsets_ordered",
+            name="offsets_ordered",
         ),
         # A verified citation must say how it was verified and when.
         CheckConstraint(
             "NOT verified OR (verification_method IS NOT NULL AND verified_at IS NOT NULL)",
-            name="ck_event_evidence_verified_records_method",
+            name="verified_records_method",
         ),
     )
 
@@ -355,5 +355,5 @@ class ReviewDecision(Base):
 
     __table_args__ = (
         one_of("decision", REVIEW_DECISIONS, "decision"),
-        CheckConstraint("length(btrim(reason)) > 0", name="ck_review_decisions_reason_not_blank"),
+        CheckConstraint("length(btrim(reason)) > 0", name="reason_not_blank"),
     )
