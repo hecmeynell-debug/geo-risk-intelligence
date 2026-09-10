@@ -7,7 +7,7 @@ name = "geo-risk-intelligence"
 version = "0.1.0"
 description = "Auditable open-source risk intelligence for maritime, energy, and supply-chain disruption"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 
 dependencies = [
@@ -26,6 +26,10 @@ dependencies = [
     "feedparser>=6.0.11",
     "selectolax>=0.3.21",
     "python-dateutil>=2.9",
+    # Processing. fastembed runs the embedding model on onnxruntime -- no torch, so
+    # the image stays reasonable and the worker needs no GPU.
+    "fastembed>=0.4.2",
+    "anthropic>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -52,7 +56,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
@@ -68,9 +72,13 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
 # Fixture payloads are XML and HTML held verbatim; rewrapping them would change what is
 # being tested.
 "tests/fixtures.py" = ["E501"]
+# Prompt templates are content, not code. Rewrapping a line to satisfy a linter changes
+# what the model is shown -- and changes the template hash, which is a versioned
+# artefact (ADR-0001 D6).
+"src/gri/processing/prompts.py" = ["E501"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 files = ["src"]
 plugins = ["pydantic.mypy"]
 warn_unused_ignores = true

@@ -12,6 +12,12 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir -e ".[dev]"
 
+# Bake the embedding model into the image so the worker starts deterministically and
+# runs offline. Downloading on first use would make the first tick slow, non-reproducible,
+# and dependent on the Hugging Face hub being reachable.
+ENV FASTEMBED_CACHE_PATH=/app/.model-cache
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
+
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY scripts ./scripts

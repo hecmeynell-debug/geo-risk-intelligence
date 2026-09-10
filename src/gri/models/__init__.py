@@ -8,7 +8,7 @@ forward references between modules and gives Alembic autogenerate a complete
 from __future__ import annotations
 
 from gri.models.base import Base
-from gri.models.document import EMBEDDING_DIM, DocumentChunk, RawDocument
+from gri.models.document import EMBEDDING_DIM, EMBEDDING_MODEL, DocumentChunk, RawDocument
 from gri.models.evaluation import (
     EvaluationDataset,
     EvaluationExample,
@@ -31,6 +31,7 @@ from gri.models.source import IngestionRun, Source
 
 __all__ = [
     "EMBEDDING_DIM",
+    "EMBEDDING_MODEL",
     "Base",
     "DocumentChunk",
     "Entity",

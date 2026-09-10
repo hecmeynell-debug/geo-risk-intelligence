@@ -66,6 +66,18 @@ jobs:
         # rather than buried in the full suite.
         run: pytest tests/test_ingestion_integration.py -v -k "Idempotency or Provenance"
 
+      - name: Citations are verified and unverified records cannot publish
+        # The Phase 2 gate. This is the check the whole project turns on: a fabricated
+        # quote must never reach the events table.
+        run: |
+          pytest tests/test_verify.py -v
+          pytest tests/test_pipeline_integration.py -v -k "CitationGate or HappyPath"
+
+      - name: Prompt integrity
+        # A released prompt template must not change without a version bump, or every
+        # historical measurement attributed to that version becomes a lie.
+        run: python scripts/check_prompts.py
+
       - name: Seed the source registry
         run: python scripts/seed_sources.py
 

@@ -8,11 +8,13 @@ structured event records where **every claim is traceable to a quote verified ag
 source text we retrieved**. Records with weak, conflicting, or incomplete evidence are
 routed to a human review queue rather than published as established.
 
-> **Status: Phase 1 (Ingestion & Raw Store) complete.** The stack, schema, adapters, and
-> the provenance-tracked raw document store are in place, and repeated ingestion is
-> idempotent. **No source is enabled**, so nothing is being fetched and the database holds
-> no documents — enabling a source requires a human to record a terms review first. See
-> [Sources](#sources-nothing-is-enabled) and [Roadmap](#roadmap).
+> **Status: Phase 2 (Core Intelligence Pipeline) complete.** The stack, schema, adapters, and
+> the raw document store are in place, and the full pipeline runs end to end: chunk,
+> embed, cluster, extract against a strict schema, verify every citation, score
+> confidence, and publish or route to review. **No source is enabled**, so nothing is
+> being fetched and the database holds no documents — enabling a source requires a human
+> to record a terms review first. See [Sources](#sources-nothing-is-enabled) and
+> [Roadmap](#roadmap).
 
 ---
 
@@ -115,9 +117,15 @@ document → LLM extraction → Pydantic schema validation → citation verifica
 ```
 
 **Citation verification is deterministic code, not another model call.** Each quote is
-located in the stored `clean_text` by normalised string match. A quote that cannot be
-found fails, and the record is flagged. That converts "the model says it cited this" into
-a checkable fact.
+located in the stored `clean_text` by normalised string match, using the same
+normalisation that produced it — so a quote differing only in whitespace or Unicode form
+still verifies, while a quote with different *words* does not. That converts "the model
+says it cited this" into a checkable fact.
+
+An extraction whose quotes do not verify **never reaches the `events` table**. That is
+enforced in the pipeline, asserted by `tests/test_pipeline_integration.py::TestCitationGate`,
+and backed by a database `CHECK` requiring `schema_valid AND citation_valid` before an
+extraction can carry an `event_id`.
 
 What this catches: fabricated quotes. What it does **not** catch: a real quote attached to
 a wrong conclusion. That residual risk is what the confidence score, the mandatory review
@@ -125,6 +133,29 @@ of `high`/`severe` records, and the human queue exist to absorb. We would rather
 plainly than imply the check is stronger than it is.
 
 ---
+
+## Models and cost
+
+| Stage | Model | Where it runs |
+|---|---|---|
+| Embeddings | `BAAI/bge-small-en-v1.5` (384 dims) | Locally, in the worker, via onnxruntime |
+| Extraction | `claude-sonnet-5` | Anthropic API |
+| Escalation | `claude-opus-5` | Anthropic API, only when the first pass is weak |
+
+Embeddings run locally so the evaluation harness stays runnable in CI on every push,
+with no key and no spend. Extraction escalates to the stronger model only on a failed
+citation, a low-confidence result, or an in-niche abstention — so the capability is spent
+on the cases where judgement actually matters.
+
+Every model call records its model, prompt version, token counts, latency, and computed
+cost as its own `extractions` row, so cost per document is measured rather than estimated.
+**Both halves of a cascade are recorded separately**, which is what lets Phase 4 report
+quality per model instead of hiding it in an aggregate. The reasoning, and the conditions under
+which the cascade should be dropped, are in
+[ADR-0002](docs/adr/ADR-0002-embeddings-and-extraction.md).
+
+The whole test suite runs against a scripted extraction provider: **no key, no network,
+no spend.** Set `GRI_ANTHROPIC_API_KEY` in `.env` to make real calls.
 
 ## Sources: nothing is enabled
 
@@ -206,7 +237,7 @@ tests/               unit tests, plus live-database constraint tests
 |---|---|---|
 | 0 | Foundations: Compose stack, schema, migrations, constraints, CI | **Complete** |
 | 1 | Ingestion and raw store: adapters, provenance, idempotency | **Complete** |
-| 2 | Core pipeline: chunk, embed, cluster, extract, verify citations, API | Not started |
+| 2 | Core pipeline: chunk, embed, cluster, extract, verify citations, API | **Complete** |
 | 3 | Product interface: feed, filters, evidence panel, briefing, review queue | Not started |
 | 4 | Evaluation and operations: labelled set, CI metrics gate, logging | Not started |
 | 5 | Polish and packaging | Not started |

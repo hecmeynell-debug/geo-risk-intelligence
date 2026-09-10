@@ -1,8 +1,6 @@
 """FastAPI application.
 
-Phase 0 exposes health only. Event, search, briefing, and review endpoints arrive in
-Phases 2 and 3 -- the app exists now so that the Compose stack is genuinely reproducible
-and CI has something to exercise.
+Phase 2 adds events and search. Briefing and the review queue arrive in Phase 3.
 """
 
 from __future__ import annotations
@@ -15,6 +13,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from gri import __version__
+from gri.api.events import router as events_router
+from gri.api.events import search_router
 from gri.config import Settings, get_settings
 from gri.db import check_database, get_db
 
@@ -95,9 +95,23 @@ def create_app() -> FastAPI:
         title="geo-risk-intelligence",
         version=__version__,
         description=DESCRIPTION,
-        openapi_tags=[{"name": "ops", "description": "Health and service identity."}],
+        openapi_tags=[
+            {"name": "ops", "description": "Health and service identity."},
+            {
+                "name": "events",
+                "description": (
+                    "Evidence-linked disruption records. Every event carries the quotes"
+                    " that support it and whether each was verified against the stored"
+                    " source text. Records flagged for human review are excluded unless"
+                    " explicitly requested."
+                ),
+            },
+            {"name": "search", "description": "Lexical search over events and their evidence."},
+        ],
     )
     app.include_router(router)
+    app.include_router(events_router)
+    app.include_router(search_router)
     return app
 
 

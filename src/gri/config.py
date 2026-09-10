@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     poll_interval_seconds: int = Field(default=1800, ge=1800, le=3600)
     http_timeout_seconds: float = 30.0
 
+    #: Optional. When unset, the SDK still resolves ANTHROPIC_API_KEY,
+    #: ANTHROPIC_AUTH_TOKEN, or an `ant auth login` profile from the environment. Nothing
+    #: in the test suite or CI needs it: extraction runs against a scripted provider.
+    anthropic_api_key: str | None = None
+
     log_level: str = "INFO"
     log_json: bool = True
 

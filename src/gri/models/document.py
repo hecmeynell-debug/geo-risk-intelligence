@@ -31,9 +31,14 @@ from gri.taxonomy import RETRIEVAL_METHODS
 if TYPE_CHECKING:
     from gri.models.source import IngestionRun, Source
 
-#: Provisional. ADR-0001 leaves the embedding model open until Phase 2; each row records
-#: the model and dimension actually used so a mismatch is detectable rather than silent.
-EMBEDDING_DIM = 1536
+#: Settled in ADR-0002: BAAI/bge-small-en-v1.5 run locally via fastembed.
+#:
+#: Each row still records the model and dimension actually used, so a mismatch is
+#: detectable rather than silent. Changing this value now is cheap only because no
+#: source has ever been enabled and there is nothing to re-embed; once real documents
+#: exist, a dimension change means re-embedding the entire corpus.
+EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+EMBEDDING_DIM = 384
 
 
 class RawDocument(Base):
