@@ -174,6 +174,46 @@ restriction into last February's event.
 
 ---
 
+## Measured on the first live run (2026-09-10)
+
+Two documents through the real API via `scripts/live_extraction_smoke.py`. Small sample,
+recorded because it already contradicts one assumption in this ADR.
+
+| Document | Path | In tokens | Out | Latency | Cost |
+|---|---|---|---|---|---|
+| Clear, well-evidenced notice (458 chars) | Sonnet only | 5,354 | 1,011 | 12.1 s | $0.0208 |
+| Thin, hedged notice (228 chars) | Sonnet, then Opus | 5,270 + 5,447 | 146 + 104 | 7.5 s | $0.0418 |
+
+**Behaviour was correct on both.** The clear notice produced an event with 6/6 citations
+verified against the source. The thin notice was abstained on by Sonnet *and* by Opus,
+each giving an accurate reason — neither invented a record, which is the behaviour the
+whole design exists to produce.
+
+Two findings:
+
+**1. The prompt dominates cost, not the document.** A 228-character notice cost 5,270
+input tokens, because the instruction block is ~5,000 tokens and the document is
+rounding error. At a 30-minute cadence across ten sources this is essentially the entire
+bill, and it is almost all identical bytes on every call.
+
+The fix is prompt caching: the instruction block is stable and the document is volatile,
+so splitting them at a cache breakpoint (stable content in `system`, document in the user
+message) should cut input cost on repeat calls substantially. That restructures the
+prompt, so it requires a `v2` — deliberately **not** done as a drive-by, because
+`scripts/check_prompts.py` exists precisely to stop released templates changing quietly.
+
+**2. Escalating on abstention may not earn its cost.** In the one case observed, Opus was
+spent 2.5x Sonnet's price to *confirm* a correct abstention. If thin sources are common —
+and in this domain they are — this specific trigger burns money to change nothing.
+
+That is one observation, not a measurement. Phase 4 should report escalation outcomes
+split by trigger (failed citation / low confidence / abstention) rather than in
+aggregate, because the three triggers plainly have different value and the aggregate
+would hide it. **If the abstention trigger rarely changes the outcome, remove it and keep
+the other two.**
+
+---
+
 ## Revisit triggers
 
 Recorded so that "we should look at this again" is a condition, not a feeling:
@@ -181,6 +221,8 @@ Recorded so that "we should look at this again" is a condition, not a feeling:
 | Trigger | Action |
 |---|---|
 | Escalation rate above ~30% of documents | Drop the cascade; use one model |
+| Abstention-triggered escalations rarely change the outcome | Remove that trigger, keep the other two |
+| Input cost dominated by the static prompt | Split at a cache breakpoint and release prompt v2 |
 | Citation validity below 95% on the labelled set | Investigate before shipping any prompt change |
 | Chunk count above ~1M, or ANN recall degrading | Revisit pgvector index strategy (ADR-0001 D3) |
 | Non-English sources become material | Revisit the embedding model — `bge-small` is English-only |

@@ -31,6 +31,7 @@ services:
       dockerfile: docker/api.Dockerfile
     environment:
       GRI_DATABASE_URL: postgresql+psycopg://gri:gri@db:5432/gri
+      GRI_ANTHROPIC_API_KEY: ${GRI_ANTHROPIC_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -54,6 +55,9 @@ services:
       GRI_DATABASE_URL: postgresql+psycopg://gri:gri@db:5432/gri
       GRI_ENVIRONMENT: local
       GRI_LOG_JSON: "true"
+      # Optional: read from the gitignored .env. Empty is fine -- extraction is the
+      # only thing that needs it, and tests never do.
+      GRI_ANTHROPIC_API_KEY: ${GRI_ANTHROPIC_API_KEY:-}
     ports:
       - "${GRI_API_HOST_PORT:-8000}:8000"
     depends_on:
@@ -80,6 +84,9 @@ services:
       GRI_DATABASE_URL: postgresql+psycopg://gri:gri@db:5432/gri
       GRI_ENVIRONMENT: local
       GRI_LOG_JSON: "true"
+      # Optional: read from the gitignored .env. Empty is fine -- extraction is the
+      # only thing that needs it, and tests never do.
+      GRI_ANTHROPIC_API_KEY: ${GRI_ANTHROPIC_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
