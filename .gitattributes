@@ -1,0 +1,8 @@
+# The stack runs in Linux containers. CRLF in a Makefile, a shell command, or a Dockerfile
+# breaks at runtime in ways that are tedious to diagnose, so normalise everything to LF
+# regardless of the contributor's platform or core.autocrlf setting.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary

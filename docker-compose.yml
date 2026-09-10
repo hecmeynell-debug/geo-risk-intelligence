@@ -1,0 +1,93 @@
+# One command to a reproducible stack:  docker compose up --build
+#
+# Deliberately three services. No Kubernetes, no Redis, no second datastore (NG-7).
+# Postgres data lives in a named volume rather than a bind mount, so the database is not
+# synced by OneDrive/Dropbox and cannot be corrupted by a file-sync client.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: gri
+      POSTGRES_PASSWORD: gri
+      POSTGRES_DB: gri
+    ports:
+      # Host port is overridable so the stack coexists with another local
+      # Postgres. Container-side stays 5432.
+      - "${GRI_DB_HOST_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/00-vector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gri -d gri"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    environment:
+      GRI_DATABASE_URL: postgresql+psycopg://gri:gri@db:5432/gri
+    depends_on:
+      db:
+        condition: service_healthy
+    # Runs to completion, then exits. api and worker wait for it to succeed, so neither
+    # ever serves an un-migrated database.
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    volumes:
+      - ./src:/app/src:ro
+      # Writable on purpose: `make revision` autogenerates into this directory and the
+      # new file must land on the host, not vanish with the container.
+      - ./migrations:/app/migrations
+      - ./scripts:/app/scripts:ro
+      - ./tests:/app/tests:ro
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    environment:
+      GRI_DATABASE_URL: postgresql+psycopg://gri:gri@db:5432/gri
+      GRI_ENVIRONMENT: local
+      GRI_LOG_JSON: "true"
+    ports:
+      - "${GRI_API_HOST_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    command:
+      ["uvicorn", "gri.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./src:/app/src:ro
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    environment:
+      GRI_DATABASE_URL: postgresql+psycopg://gri:gri@db:5432/gri
+      GRI_ENVIRONMENT: local
+      GRI_LOG_JSON: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "gri.worker.main"]
+    volumes:
+      - ./src:/app/src:ro
+
+volumes:
+  pgdata:
