@@ -128,3 +128,23 @@ def assess(
         requires_human_review=requires_review,
         reasons=reasons,
     )
+
+
+def flag_must_stay(severity: str, confidence: float | None) -> list[str]:
+    """Database guarantees that keep ``requires_human_review`` set, whatever a human says.
+
+    Mirrors the two CHECK constraints on ``events``. Checked here so the result can
+    explain itself, rather than surfacing as a constraint violation.
+    """
+    kept: list[str] = []
+    if severity in SEVERITY_ALWAYS_REVIEW:
+        kept.append(
+            f"severity is '{severity}': high-impact records always carry the review flag"
+            " (ck_events_high_severity_requires_review)"
+        )
+    if confidence is not None and confidence < REVIEW_THRESHOLD:
+        kept.append(
+            f"confidence {confidence:.2f} is below {REVIEW_THRESHOLD}"
+            " (ck_events_low_confidence_requires_review)"
+        )
+    return kept

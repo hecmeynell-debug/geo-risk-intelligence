@@ -32,7 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from gri.models import Event, ReviewDecision
-from gri.processing.confidence import REVIEW_THRESHOLD
+from gri.processing.confidence import REVIEW_THRESHOLD, flag_must_stay
 from gri.taxonomy import EVENT_TYPES, REVIEW_DECISIONS, SEVERITY_ALWAYS_REVIEW, SEVERITY_LEVELS
 
 #: Fields a reviewer may correct. ``summary`` is absent on purpose -- see module docstring.
@@ -81,26 +81,6 @@ def review_reasons(event: Event) -> list[str]:
     if not reasons and event.requires_human_review:
         reasons.append("flagged for review by the pipeline")
     return reasons
-
-
-def flag_must_stay(severity: str, confidence: float | None) -> list[str]:
-    """Database guarantees that keep ``requires_human_review`` set, whatever a human says.
-
-    Mirrors the two CHECK constraints on ``events``. Checked here so the result can
-    explain itself, rather than surfacing as a constraint violation.
-    """
-    kept: list[str] = []
-    if severity in SEVERITY_ALWAYS_REVIEW:
-        kept.append(
-            f"severity is '{severity}': high-impact records always carry the review flag"
-            " (ck_events_high_severity_requires_review)"
-        )
-    if confidence is not None and confidence < REVIEW_THRESHOLD:
-        kept.append(
-            f"confidence {confidence:.2f} is below {REVIEW_THRESHOLD}"
-            " (ck_events_low_confidence_requires_review)"
-        )
-    return kept
 
 
 def _validate_edits(event: Event, edits: Mapping[str, Any]) -> dict[str, tuple[Any, Any]]:

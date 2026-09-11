@@ -21,7 +21,7 @@
 <div class="panel">
   <p>{{ event.summary }}</p>
   {% if event.severity_rationale %}<p class="meta">Severity rationale: {{ event.severity_rationale }}</p>{% endif %}
-  {% if event.change_note %}<p class="meta">{{ event.change_note }}</p>{% endif %}
+  {% if event.change_note %}<p class="meta"><strong>Latest update.</strong> {{ event.change_note }}</p>{% endif %}
 </div>
 
 <div class="grid">
