@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     #: in the test suite or CI needs it: extraction runs against a scripted provider.
     anthropic_api_key: str | None = None
 
+    #: Documents the worker extracts per tick. 0 turns automatic processing off.
+    max_extractions_per_tick: int = Field(default=20, ge=0, le=500)
+    #: Hard ceiling on recorded extraction spend per UTC day. 0 turns processing off.
+    #: Measured from the cost_usd telemetry on every extraction, not estimated.
+    daily_extraction_budget_usd: float = Field(default=1.0, ge=0)
+
     log_level: str = "INFO"
     log_json: bool = True
 

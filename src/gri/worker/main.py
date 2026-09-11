@@ -1,7 +1,7 @@
 """Scheduled worker entry point.
 
-Polls every enabled source whose interval has elapsed, then sleeps. Phase 2 adds
-processing of the documents this produces.
+Polls every enabled source whose interval has elapsed, then extracts events from the
+new documents -- within a per-tick cap and a daily spend budget -- and sleeps.
 
 No Redis, no Celery: at a 30-60 minute cadence over a handful of sources, an in-process
 loop plus ``FOR UPDATE SKIP LOCKED`` is sufficient (ADR-0001 D4). Adding a broker before
@@ -27,6 +27,7 @@ from gri.db import check_database, session_scope
 from gri.ingestion.http import HttpFetcher
 from gri.ingestion.runner import ingest_due_sources
 from gri.logging import configure_logging, get_logger
+from gri.processing.queue import extraction_configured, pending_document_ids, process_pending
 
 log = get_logger(__name__)
 
@@ -44,9 +45,17 @@ def _handle_signal(signum: int, _frame: FrameType | None) -> None:
 
 
 def run_once(fetcher: HttpFetcher) -> dict[str, int]:
-    """One scheduler tick."""
+    """One scheduler tick: ingest what is due, then turn new documents into events."""
+    settings = get_settings()
     now = datetime.now(UTC)
-    totals = {"sources_run": 0, "items_new": 0, "items_duplicate": 0, "items_failed": 0}
+    totals = {
+        "sources_run": 0,
+        "items_new": 0,
+        "items_duplicate": 0,
+        "items_failed": 0,
+        "documents_processed": 0,
+        "documents_failed": 0,
+    }
 
     with session_scope() as session:
         runs = ingest_due_sources(session, fetcher, now)
@@ -56,7 +65,30 @@ def run_once(fetcher: HttpFetcher) -> dict[str, int]:
             totals["items_duplicate"] += run.items_duplicate
             totals["items_failed"] += run.items_failed
 
-    if totals["sources_run"]:
+    # Processing runs in its own session, committing after each document, so a crash
+    # partway through cannot roll back work already paid for.
+    if settings.max_extractions_per_tick and settings.daily_extraction_budget_usd:
+        if extraction_configured():
+            with session_scope() as session:
+                tick = process_pending(
+                    session,
+                    limit=settings.max_extractions_per_tick,
+                    daily_budget_usd=settings.daily_extraction_budget_usd,
+                    commit_each=True,
+                )
+            totals["documents_processed"] = tick.processed
+            totals["documents_failed"] = tick.failed
+        else:
+            # Only worth saying when something is actually waiting; otherwise a keyless
+            # checkout would log this every tick forever.
+            with session_scope() as session:
+                if pending_document_ids(session, 1):
+                    log.warning(
+                        "extraction_not_configured",
+                        hint="documents are waiting; set GRI_ANTHROPIC_API_KEY in .env",
+                    )
+
+    if any(totals.values()):
         log.info("tick_complete", **totals)
     return totals
 
