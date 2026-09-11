@@ -90,9 +90,14 @@ which ones are outstanding rather than emitting a constraint violation.
 ## 3. Candidate sources for Phase 1
 
 **Status: all CANDIDATE. None is approved.** These are listed as the shortlist to
-review, not as a set of vetted sources. Nobody on this project has yet read the terms
-for any of them, and no claim is made here that their terms permit our use. Each one
-must pass Section 2 individually before its adapter is enabled.
+review, not as a set of vetted sources. No human has yet reviewed the terms for any of
+them, and no claim is made here that their terms permit our use. Each one must pass
+Section 2 individually before its adapter is enabled.
+
+Preparation for that review — each candidate's published terms and `robots.txt`, quoted,
+with the open questions called out — is in
+[source-terms-research.md](source-terms-research.md). It is research, not a review: it
+records what the pages say, not a decision.
 
 The shortlist deliberately favours official and government publishers, because their
 rights status is usually clear and often public domain.
