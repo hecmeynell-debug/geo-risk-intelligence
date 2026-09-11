@@ -1,6 +1,7 @@
 """FastAPI application.
 
-Phase 2 adds events and search. Briefing and the review queue arrive in Phase 3.
+Phase 2 added events and search; Phase 3 adds the briefing, the location view, the
+review queue, and the server-rendered dashboard at /ui.
 """
 
 from __future__ import annotations
@@ -13,8 +14,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from gri import __version__
+from gri.api.briefing import router as briefing_router
 from gri.api.events import router as events_router
 from gri.api.events import search_router
+from gri.api.locations import router as locations_router
+from gri.api.review import router as review_router
+from gri.api.ui import router as ui_router
 from gri.config import Settings, get_settings
 from gri.db import check_database, get_db
 
@@ -87,6 +92,7 @@ def root() -> dict[str, Any]:
             "Automated extraction makes mistakes; low-confidence records are flagged.",
         ],
         "docs": "/docs",
+        "dashboard": "/ui",
     }
 
 
@@ -107,11 +113,33 @@ def create_app() -> FastAPI:
                 ),
             },
             {"name": "search", "description": "Lexical search over events and their evidence."},
+            {
+                "name": "briefing",
+                "description": (
+                    "Daily briefing assembled from established records and verified quotes."
+                    " No model call. Records awaiting review are withheld and counted."
+                ),
+            },
+            {
+                "name": "locations",
+                "description": "Aggregate counts per fixed feature. No coordinates or tracking.",
+            },
+            {
+                "name": "review",
+                "description": (
+                    "The human review queue. Every decision needs a reason. There is no"
+                    " authentication: do not expose these endpoints beyond a trusted network."
+                ),
+            },
         ],
     )
     app.include_router(router)
     app.include_router(events_router)
     app.include_router(search_router)
+    app.include_router(briefing_router)
+    app.include_router(locations_router)
+    app.include_router(review_router)
+    app.include_router(ui_router)
     return app
 
 

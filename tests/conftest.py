@@ -8,7 +8,7 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from gri.models import Base
+from gri.models import Base, Source
 
 DEFAULT_TEST_URL = "postgresql+psycopg://gri:gri@localhost:5432/gri"
 
@@ -64,3 +64,30 @@ def session(schema: Engine) -> Iterator[Session]:
     finally:
         sess.rollback()
         sess.close()
+
+
+@pytest.fixture
+def source(session: Session) -> Source:
+    """A reviewed source able to supply quotable text. Modules may override this."""
+    from tests.helpers import make_source
+
+    return make_source(session)
+
+
+@pytest.fixture
+def client(session: Session) -> Iterator[object]:
+    """A TestClient bound to the test session, so it sees uncommitted fixture rows."""
+    from fastapi.testclient import TestClient
+
+    from gri.api.main import create_app
+    from gri.db import get_db
+
+    app = create_app()
+
+    def override() -> Iterator[Session]:
+        yield session
+
+    app.dependency_overrides[get_db] = override
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()

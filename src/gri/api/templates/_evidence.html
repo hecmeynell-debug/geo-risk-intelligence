@@ -1,0 +1,23 @@
+{# The evidence panel. Included by every page that shows an event, so it has one shape. #}
+<h2>Evidence</h2>
+{% if event.evidence %}
+  {% for q in event.evidence %}
+  <div class="panel">
+    <div class="meta">
+      Supports <strong>{{ q.field_supported }}</strong> ·
+      {% if q.verified %}<span class="badge badge-ok">verified: {{ q.verification_method }}</span>
+      {% else %}<span class="badge sev-severe">NOT verified</span>{% endif %}
+      {% if q.char_start is not none %}· characters {{ q.char_start }}–{{ q.char_end }}{% endif %}
+    </div>
+    <blockquote>{{ q.quote }}</blockquote>
+    <div class="meta">
+      {{ q.source_name }}{% if q.published_at %}, published {{ q.published_at[:10] }}{% endif %} ·
+      {% set link = q.source_url | safe_url %}
+      {% if link %}<a href="{{ link }}" rel="noopener noreferrer nofollow" target="_blank">source document</a>
+      {% else %}<span>source link unavailable</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="err">This record has no evidence attached. It should not exist; please report it.</div>
+{% endif %}

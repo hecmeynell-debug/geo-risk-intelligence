@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}geo-risk-intelligence{% endblock %} · geo-risk-intelligence</title>
+<link rel="icon" href="data:,">
+
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1c1c1a; --muted: #5f5f5a; --line: #deded8;
+    --accent: #1f5f8b; --warn-bg: #fff4dc; --warn-ink: #7a4b00; --bad-bg: #fde8e6; --bad-ink: #8a1f14;
+    --ok-bg: #e5f4ea; --ok-ink: #1d5e33; --quote: #f1f3f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1c; --ink: #ecece8; --muted: #a2a29a; --line: #34342f;
+      --accent: #7fb6dc; --warn-bg: #3a2c10; --warn-ink: #f2c46b; --bad-bg: #3d1a16; --bad-ink: #f3a197;
+      --ok-bg: #16301f; --ok-ink: #8fd6a6; --quote: #262a30;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px 48px; }
+  header { border-bottom: 1px solid var(--line); background: var(--panel); }
+  header .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; padding-top: 14px; padding-bottom: 12px; }
+  header .brand { font-weight: 650; }
+  header .brand small { display: block; font-weight: 400; color: var(--muted); font-size: 12.5px; }
+  nav { display: flex; flex-wrap: wrap; gap: 16px; }
+  nav a { color: var(--accent); text-decoration: none; }
+  nav a:hover { text-decoration: underline; }
+  .disclaimer { font-size: 13px; color: var(--muted); border-left: 3px solid var(--line);
+                padding: 8px 12px; margin: 18px 0; background: var(--panel); }
+  h1 { font-size: 22px; margin: 22px 0 6px; }
+  h2 { font-size: 17px; margin: 26px 0 8px; }
+  a { color: var(--accent); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin: 12px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; }
+  .tbl { overflow-x: auto; }
+  .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+  .sev-informational, .sev-low { background: var(--panel); }
+  .sev-moderate { background: var(--warn-bg); color: var(--warn-ink); }
+  .sev-high, .sev-severe { background: var(--bad-bg); color: var(--bad-ink); }
+  .badge-ok { background: var(--ok-bg); color: var(--ok-ink); border-color: var(--ok-ink); }
+  .flag { background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-ink);
+          border-radius: 8px; padding: 12px 14px; margin: 14px 0; }
+  .ok { background: var(--ok-bg); color: var(--ok-ink); border-radius: 8px; padding: 12px 14px; margin: 14px 0; }
+  .err { background: var(--bad-bg); color: var(--bad-ink); border-radius: 8px; padding: 12px 14px; margin: 14px 0; }
+  blockquote { margin: 8px 0; padding: 8px 12px; background: var(--quote); border-left: 3px solid var(--accent); }
+  .meta { color: var(--muted); font-size: 13px; }
+  form.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+  label { display: block; font-size: 12.5px; color: var(--muted); }
+  input, select, textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+                            background: var(--panel); color: var(--ink); max-width: 100%; }
+  textarea { width: 100%; min-height: 80px; }
+  button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--accent);
+           background: var(--accent); color: #fff; cursor: pointer; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="brand">geo-risk-intelligence
+      <small>Evidence-linked records of maritime, energy, and supply-chain disruption</small>
+    </div>
+    <nav>
+      <a href="/ui">Event feed</a>
+      <a href="/ui/locations">Locations</a>
+      <a href="/ui/briefing">Daily briefing</a>
+      <a href="/ui/review">Review queue</a>
+      <a href="/docs">API</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+  <p class="disclaimer">
+    This is an evidence-aggregation tool over public and official reporting, not an
+    authoritative security or intelligence product. Every claim shown here is quoted from a
+    source document and checked against the text retrieved at ingestion time. Coverage is
+    not comprehensive, and the absence of an event is not evidence that nothing happened.
+  </p>
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>
