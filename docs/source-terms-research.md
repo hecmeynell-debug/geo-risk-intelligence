@@ -24,7 +24,7 @@
 |---|---|---|---|---|
 | NGA MSI broadcast warnings | robots.txt absent (404) — permissive by convention | Partly: a "Commercial Use Warning" page exists but is a JavaScript app and could not be read | Likely usable; US Government work | **Read `msi.nga.mil/commercial-use` in a browser** |
 | USCG NavCen Local Notices | **Allowed** | Policy page returns "Access Denied" to non-browser clients | Likely usable; US Government work | **Read `uscg.mil/disclaim` in a browser**; selectors unverified |
-| NOAA/NWS marine alerts | **Disallowed** — `User-agent: *` / `Disallow: /` | Yes — "open data, free to use for any purpose" | Terms permissive; robots.txt forbids | **Policy decision** (see finding 1) |
+| NOAA/NWS marine alerts | **Disallowed** — `User-agent: *` / `Disallow: /` | Yes — "open data, free to use for any purpose" | Terms permissive; robots.txt forbids | **Excluded by current policy**; including it needs a policy amendment (finding 1) |
 | EIA petroleum data | robots.txt on the API host returns 403; main site's rules don't cover the API path | Yes — explicitly public domain, attribution requested | Likely usable | Free API key registration |
 | DOE OE-417 | Host did not connect (HTTP 000) | Not reached | Endpoint appears dead or moved | **Endpoint unreachable** (see finding 3) |
 | OFAC SDN changes | **Allowed** | No reuse terms on the FAQ page; public downloads | Likely usable; US Government work | **Adapter mismatch**: `sdn.xml` is not RSS |
@@ -59,8 +59,13 @@ indexing pages, and this host serves an API NWS explicitly invites programs to c
 our fetcher treats a `robots.txt` disallow as a block (`SourceBlocked`), so **as the code
 stands, enabling NOAA would disable itself on the first fetch.**
 
-This is a policy question, not a code one: *does our robots rule apply to a documented
-API whose publisher invites automated use?* Either answer is defensible; it should be
+**Under the policy as currently written, NOAA is excluded, not merely uncertain.**
+`source-provenance-policy.md` Section 1 lists "any source whose `robots.txt` disallows
+the path we would fetch" as categorically excluded. Including NOAA therefore means
+amending that policy first — it cannot be done by a per-source review alone.
+
+The amendment would be a policy question, not a code one: *does our robots rule apply
+to a documented API whose publisher invites automated use?* Either answer is defensible; it should be
 decided once, written into `source-provenance-policy.md`, and — if the answer is "no" —
 implemented as an explicit, per-source, reviewed exemption rather than a quiet bypass.
 
@@ -185,7 +190,8 @@ that explain shipping or energy disruption are in scope.
 3. **NGA MSI** — read the Commercial Use Warning page first.
 4. **USCG NavCen** — read the site policy; then confirm the HTML selectors against the
    live page (`format_confirmed`).
-5. **NOAA** — needs the robots-for-APIs policy decision (finding 1) before anything else.
+5. **NOAA** — excluded under the current policy; only reviewable after an amendment
+   to the robots rule (finding 1).
 6. **Panama Canal** — decide metadata-only versus asking the ACP (finding 4).
 7. **OFAC** — only worth it once an XML adapter exists (finding 7).
 8. **Remove** the EU list (finding 2); **park** DOE OE-417 (finding 3) and Suez (no terms,
