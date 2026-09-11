@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from gri.ingestion.normalise import normalise_text
 from gri.logging import get_logger
 from gri.models import (
     DocumentChunk,
@@ -36,7 +37,8 @@ from gri.models import (
 )
 from gri.processing import chunk as chunking
 from gri.processing.cluster import assign_to_cluster, document_centroid
-from gri.processing.confidence import assess
+from gri.processing.confidence import assess, flag_must_stay
+from gri.processing.consolidate import EventSnapshot, change_note, compare
 from gri.processing.embed import EmbeddingProvider
 from gri.processing.embed import get_provider as get_embedding_provider
 from gri.processing.extract import (
@@ -47,9 +49,9 @@ from gri.processing.extract import (
 from gri.processing.extract import (
     get_provider as get_extraction_provider,
 )
-from gri.processing.prompts import EXTRACT_EVENT_V1
+from gri.processing.prompts import EXTRACT_EVENT_V2
 from gri.processing.verify import VerificationReport, verify_evidence
-from gri.schemas import ExtractionResult
+from gri.schemas import ExtractedEvent, ExtractionResult
 
 log = get_logger(__name__)
 
@@ -61,6 +63,8 @@ class PipelineResult:
     document_id: uuid.UUID
     chunks_created: int = 0
     event_id: uuid.UUID | None = None
+    #: How the document related to its event: new_event, update, or duplicate.
+    relation: str | None = None
     outcome: str = "pending"
     verification: VerificationReport | None = None
     extraction: ExtractionOutcome | None = None
@@ -118,19 +122,25 @@ def chunk_and_embed(
 
 
 def _get_or_create_prompt(session: Session) -> Prompt:
+    """The ``prompts`` row for the template extraction actually sends.
+
+    Must track the version in :mod:`gri.processing.extract`: an extraction row whose
+    ``prompt_id`` names one template while its ``prompt_version`` names another makes the
+    measurement unattributable (ADR-0001 D6). A test pins the two together.
+    """
+    template = EXTRACT_EVENT_V2
     prompt = session.scalar(
-        select(Prompt).where(
-            Prompt.name == EXTRACT_EVENT_V1.name, Prompt.version == EXTRACT_EVENT_V1.version
-        )
+        select(Prompt).where(Prompt.name == template.name, Prompt.version == template.version)
     )
     if prompt is not None:
         return prompt
     prompt = Prompt(
-        name=EXTRACT_EVENT_V1.name,
-        version=EXTRACT_EVENT_V1.version,
-        purpose=EXTRACT_EVENT_V1.purpose,
-        template=EXTRACT_EVENT_V1.template,
-        template_hash=EXTRACT_EVENT_V1.hash,
+        name=template.name,
+        version=template.version,
+        purpose=template.purpose,
+        # Stored as sent, in order: the cached system half, then the per-document half.
+        template=template.system_template + template.user_template,
+        template_hash=template.hash,
     )
     session.add(prompt)
     session.flush()
@@ -236,6 +246,23 @@ def process_document(
     vector = document_centroid(session, document.id)
     cluster, match = assign_to_cluster(session, vector, document.published_at)
 
+    # A document that clusters with an existing event is a duplicate or an update of
+    # it, not a new event (ADR-0001 D7, ADR-0004).
+    existing = None if match.is_new else _latest_active_event(session, cluster.id)
+    if existing is not None:
+        return _merge_into_existing(
+            session,
+            existing,
+            document=document,
+            source=source,
+            event_data=event_data,
+            verification=verification,
+            new_confidence=assessment.confidence,
+            prompt_row=prompt_row,
+            outcome=outcome,
+            result=result,
+        )
+
     event = Event(
         cluster_id=cluster.id,
         event_type=event_data.event_type,
@@ -248,7 +275,7 @@ def process_document(
         requires_human_review=assessment.requires_human_review,
         review_status="pending" if assessment.requires_human_review else "not_required",
         status="active",
-        change_note=None if match.is_new else "Update: new document matched an existing event.",
+        change_note=None,
         first_seen_at=document.published_at or datetime.now(UTC),
         last_updated_at=document.published_at or datetime.now(UTC),
     )
@@ -280,19 +307,41 @@ def process_document(
         session.add(EventSector(event_id=event.event_id, sector=sector))
 
     session.add(
-        EventDocument(
-            event_id=event.event_id,
-            document_id=document.id,
-            relation="new_event" if match.is_new else "update",
-        )
+        EventDocument(event_id=event.event_id, document_id=document.id, relation="new_event")
     )
+    _attach_evidence(session, event.event_id, document.id, verification)
 
+    _record_extractions(
+        session, document, prompt_row, outcome, verification, event_id=event.event_id
+    )
+    session.flush()
+
+    result.event_id = event.event_id
+    result.relation = "new_event"
+    result.outcome = "published" if not assessment.requires_human_review else "needs_review"
+    log.info(
+        "event_created",
+        event_id=str(event.event_id),
+        outcome=result.outcome,
+        confidence=assessment.confidence,
+        escalated=outcome.did_escalate,
+        cost_usd=round(outcome.total_cost_usd, 6),
+    )
+    return result
+
+
+def _attach_evidence(
+    session: Session,
+    event_id: uuid.UUID,
+    document_id: uuid.UUID,
+    verification: VerificationReport,
+) -> None:
     verified_at = datetime.now(UTC)
     for quote in verification.quotes:
         session.add(
             EventEvidence(
-                event_id=event.event_id,
-                document_id=document.id,
+                event_id=event_id,
+                document_id=document_id,
                 field_supported=quote.field_supported,
                 quote=quote.quote,
                 quote_char_start=quote.char_start,
@@ -303,20 +352,135 @@ def process_document(
             )
         )
 
+
+def _latest_active_event(session: Session, cluster_id: uuid.UUID) -> Event | None:
+    """The event a clustered document should merge into: the cluster's most recent one.
+
+    Clusters built before consolidation existed may hold several events; merging into
+    the newest keeps each real-world disruption on one live record going forward.
+    """
+    return session.scalar(
+        select(Event)
+        .where(Event.cluster_id == cluster_id)
+        .where(Event.status == "active")
+        .order_by(Event.last_updated_at.desc().nulls_last(), Event.created_at.desc())
+        .limit(1)
+    )
+
+
+def _snapshot(event: Event) -> EventSnapshot:
+    return EventSnapshot(
+        event_type=event.event_type,
+        event_date=event.event_date,
+        severity=event.severity,
+        location_names=frozenset(normalise_text(loc.name).casefold() for loc in event.locations),
+        actor_names=frozenset(
+            normalise_text(a.entity.canonical_name).casefold() for a in event.actors
+        ),
+        sectors=frozenset(s.sector for s in event.sectors),
+    )
+
+
+def _merge_into_existing(
+    session: Session,
+    existing: Event,
+    *,
+    document: RawDocument,
+    source: Source,
+    event_data: ExtractedEvent,
+    verification: VerificationReport,
+    new_confidence: float,
+    prompt_row: Prompt,
+    outcome: ExtractionOutcome,
+    result: PipelineResult,
+) -> PipelineResult:
+    """Fold a verified document into the event it describes, as a duplicate or update.
+
+    Only changes a verified quote from the new document supports are applied. Review
+    state follows CONSTRAINTS.md Section 6, with one addition: new content on a record a
+    human already cleared sends it back for review, because the approval covered
+    different content.
+    """
+    decision = compare(_snapshot(existing), event_data, verification.quotes)
+    relation = decision.relation
+    published = document.published_at or datetime.now(UTC)
+
+    # -- Apply grounded changes -------------------------------------------------------
+    for change in decision.applied:
+        if change.field == "severity":
+            existing.severity = change.after
+            existing.severity_rationale = event_data.severity_rationale
+    for location in event_data.locations:
+        if location.name in decision.new_locations:
+            session.add(
+                EventLocation(
+                    event_id=existing.event_id,
+                    name=location.name,
+                    location_type=location.location_type,
+                    country_code=location.country_code,
+                    location_precision=location.precision,
+                    geo_source="extraction",
+                )
+            )
+    for actor in event_data.actors:
+        if actor.name in decision.new_actors:
+            entity = _get_or_create_entity(session, actor.name, actor.entity_type)
+            already = session.get(EventActor, (existing.event_id, entity.id, actor.role))
+            if already is None:
+                session.add(
+                    EventActor(event_id=existing.event_id, entity_id=entity.id, role=actor.role)
+                )
+    for sector in decision.new_sectors:
+        session.add(EventSector(event_id=existing.event_id, sector=sector))
+
+    # -- Review state -----------------------------------------------------------------
+    if relation == "update":
+        # Evidence can lower confidence, never raise it: take the weaker of the two.
+        if existing.confidence is not None:
+            existing.confidence = min(float(existing.confidence), new_confidence)
+        confidence = float(existing.confidence) if existing.confidence is not None else None
+
+        needs_review = decision.needs_review or bool(flag_must_stay(existing.severity, confidence))
+        if existing.review_status in {"approved", "edited", "rejected"} and (
+            decision.changes_content or decision.needs_review
+        ):
+            needs_review = True
+        if existing.review_status == "pending" and existing.requires_human_review:
+            needs_review = True
+
+        existing.requires_human_review = needs_review
+        if needs_review:
+            existing.review_status = "pending"
+        existing.change_note = change_note(
+            decision, source.name, published.date(), verification.quotes
+        )
+    # A duplicate corroborates; it changes nothing about the record or its review state.
+
+    current = existing.last_updated_at
+    if current is None or (published.tzinfo and current < published):
+        existing.last_updated_at = published
+
+    session.add(
+        EventDocument(event_id=existing.event_id, document_id=document.id, relation=relation)
+    )
+    _attach_evidence(session, existing.event_id, document.id, verification)
     _record_extractions(
-        session, document, prompt_row, outcome, verification, event_id=event.event_id
+        session, document, prompt_row, outcome, verification, event_id=existing.event_id
     )
     session.flush()
 
-    result.event_id = event.event_id
-    result.outcome = "published" if not assessment.requires_human_review else "needs_review"
+    result.event_id = existing.event_id
+    result.relation = relation
+    result.outcome = "needs_review" if existing.requires_human_review else "published"
+    result.reasons.extend(f"{c.field} conflicts with the record" for c in decision.conflicts)
+    result.reasons.extend(f"{c.field} change has no supporting quote" for c in decision.ungrounded)
     log.info(
-        "event_created",
-        event_id=str(event.event_id),
-        outcome=result.outcome,
-        confidence=assessment.confidence,
-        escalated=outcome.did_escalate,
-        cost_usd=round(outcome.total_cost_usd, 6),
+        "event_merged",
+        event_id=str(existing.event_id),
+        relation=relation,
+        applied=[c.field for c in decision.applied],
+        conflicts=[c.field for c in decision.conflicts],
+        needs_review=existing.requires_human_review,
     )
     return result
 

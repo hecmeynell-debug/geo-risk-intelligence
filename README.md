@@ -162,6 +162,12 @@ enforced in the pipeline, asserted by `tests/test_pipeline_integration.py::TestC
 and backed by a database `CHECK` requiring `schema_valid AND citation_valid` before an
 extraction can carry an `event_id`.
 
+**Second reports update the record; they do not duplicate it.** A document that clusters
+with an existing event is folded in as a duplicate (its quotes corroborate the record)
+or an update. An update changes a field only if a verified quote from the new document
+supports it, and its change note is assembled from those quotes. A contradicted date or
+event type goes to a human. See [ADR-0004](docs/adr/ADR-0004-event-consolidation.md).
+
 What this catches: fabricated quotes. What it does **not** catch: a real quote attached to
 a wrong conclusion. That residual risk is what the confidence score, the mandatory review
 of `high`/`severe` records, and the human queue exist to absorb. We would rather say this
@@ -301,6 +307,8 @@ Each phase ends at a gate that requires human sign-off before the next begins.
   — embedding and extraction models, the verification boundary, measured costs
 - [docs/adr/ADR-0003-product-interface.md](docs/adr/ADR-0003-product-interface.md)
   — the dashboard, the briefing, the review path, and the open approval question
+- [docs/adr/ADR-0004-event-consolidation.md](docs/adr/ADR-0004-event-consolidation.md)
+  — duplicates, updates, and conflicts: how a second report changes a record
 
 ## Licence
 

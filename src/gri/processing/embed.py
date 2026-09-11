@@ -170,3 +170,27 @@ def set_provider(provider: EmbeddingProvider | None) -> None:
     """Override the provider. Test-support only."""
     global _default_provider
     _default_provider = provider
+
+
+class SameVectorProvider:
+    """Returns one fixed unit vector for every input. Test-support only.
+
+    Makes any two documents cluster together (cosine similarity 1.0), so a test can
+    exercise the duplicate and update paths without pretending a hash-based fake knows
+    what two notices mean.
+    """
+
+    def __init__(self, dimension: int = EMBEDDING_DIM) -> None:
+        self._dimension = dimension
+
+    @property
+    def model_name(self) -> str:
+        return "fake-same-vector"
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        unit = normalise_vector([1.0] * self._dimension)
+        return [list(unit) for _ in texts]
