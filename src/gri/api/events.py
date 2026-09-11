@@ -228,7 +228,15 @@ def get_event(event_id: uuid.UUID, db: Annotated[Session, Depends(get_db)]) -> E
     event = db.get(Event, event_id)
     if event is None:
         raise HTTPException(404, "event not found")
+    return build_event_detail(db, event)
 
+
+def build_event_detail(db: Session, event: Event) -> EventDetailOut:
+    """The one place an event and its evidence are assembled for display.
+
+    Shared by the JSON API and the dashboard, so "never serve an event without its
+    evidence" has a single code path rather than two that could drift apart.
+    """
     evidence = _evidence_out(db, event)
     summary = _summary_out(event, len(evidence))
 
