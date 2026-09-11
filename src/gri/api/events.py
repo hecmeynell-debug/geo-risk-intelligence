@@ -38,6 +38,9 @@ class EvidenceOut(BaseModel):
     verification_method: str | None
     source_url: str | None
     source_name: str | None
+    #: Which document the quote came from. One publisher often issues several notices
+    #: a day, so the source name alone cannot tell an original from its update.
+    document_title: str | None = None
     published_at: str | None
     char_start: int | None
     char_end: int | None
@@ -112,6 +115,7 @@ def _evidence_out(session: Session, event: Event) -> list[EvidenceOut]:
             verification_method=ev.verification_method,
             source_url=doc.canonical_url or doc.url,
             source_name=src.name,
+            document_title=doc.title,
             published_at=doc.published_at.isoformat() if doc.published_at else None,
             char_start=ev.quote_char_start,
             char_end=ev.quote_char_end,
