@@ -136,8 +136,18 @@ cited source text** - not a probability that the event occurred.
 6. The item was classified as an **update** to an existing event but the change note
    cannot be grounded in new evidence
 
-Nothing with `requires_human_review = true` appears in a briefing as an established
-event. It appears in the review queue.
+A record with `requires_human_review = true` appears only in the review queue until a
+human records a decision on it:
+
+- **Approved or edited.** The record becomes established and appears in the feed, the
+  aggregate location counts, and a briefing, visibly marked as human-approved, even if
+  `requires_human_review` is still `true`. The flag is a permanent fact about the
+  record's history, enforced for triggers 1 and 4 by a database `CHECK` that no approval
+  or edit can clear; once a human has approved or edited a flagged record, their
+  decision, not the flag, decides what the product shows.
+- **Rejected.** Never established. A rejected record does not appear in the feed,
+  locations, or a briefing, whatever `review_status` is set to afterward.
+- **Pending.** Not yet established. Visible only in the review queue.
 
 **Abstention is a valid, tracked outcome.** An extraction returning "insufficient
 evidence" is a success, not a failure, and is measured as such in the evaluation harness.

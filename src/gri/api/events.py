@@ -4,8 +4,11 @@ Every event response carries its evidence: the quote, whether verification passe
 link to the source document it came from. That is not a nicety — an event served without
 the text that supports it is exactly the unauditable assertion NG-3 and NG-5 forbid.
 
-Records awaiting review are excluded by default and must be asked for explicitly, so a
-caller cannot mistake a flagged record for an established one.
+Records that are not established -- pending or rejected -- are excluded by default and
+must be asked for explicitly, so a caller cannot mistake one for an established record.
+An approved or edited record is established and is shown, even if it still carries the
+review flag a database `CHECK` refuses to clear (ADR-0003 D4); such a record is marked
+``human_approved`` so a reader can tell it apart from a record that never needed review.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from gri.db import get_db
 from gri.models import Event, EventEvidence, RawDocument, Source
+from gri.review import ESTABLISHED_REVIEW_STATUSES, is_human_approved_despite_flag
 from gri.taxonomy import EVENT_TYPES, SEVERITY_LEVELS, sorted_values
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -67,6 +71,12 @@ class EventSummaryOut(BaseModel):
     severity: str
     confidence: float | None
     requires_human_review: bool
+    #: True when this record is shown only because a human approved or edited it while
+    #: the review flag stayed set -- a database CHECK refused to clear it (ADR-0003 D4).
+    #: False for an ordinary record that never needed review. Render this distinctly:
+    #: it is established on a human's word against a guarantee still, deliberately, in
+    #: force, not on the pipeline's own confidence.
+    human_approved: bool
     review_status: str
     status: str
     evidence_count: int
@@ -133,6 +143,7 @@ def _summary_out(event: Event, evidence_count: int) -> EventSummaryOut:
         severity=event.severity,
         confidence=float(event.confidence) if event.confidence is not None else None,
         requires_human_review=event.requires_human_review,
+        human_approved=is_human_approved_despite_flag(event),
         review_status=event.review_status,
         status=event.status,
         evidence_count=evidence_count,
@@ -161,8 +172,10 @@ def list_events(
         bool,
         Query(
             description=(
-                "Include records flagged for human review. Off by default so a flagged "
-                "record is never mistaken for an established one."
+                "Include records that are not established: still pending, or rejected. "
+                "Off by default so one of those is never mistaken for an established "
+                "record. An approved or edited record is established and is always "
+                "included, whether or not it still carries the review flag."
             )
         ),
     ] = False,
@@ -178,7 +191,7 @@ def list_events(
 
     statement = select(Event).options(selectinload(Event.locations), selectinload(Event.sectors))
     if not include_pending_review:
-        statement = statement.where(Event.requires_human_review.is_(False))
+        statement = statement.where(Event.review_status.in_(ESTABLISHED_REVIEW_STATUSES))
     if event_type:
         statement = statement.where(Event.event_type == event_type)
     if severity:
@@ -297,7 +310,7 @@ def search_events(
         )
     )
     if not include_pending_review:
-        statement = statement.where(Event.requires_human_review.is_(False))
+        statement = statement.where(Event.review_status.in_(ESTABLISHED_REVIEW_STATUSES))
 
     events = list(db.scalars(statement.order_by(Event.event_date.desc()).limit(limit)))
     counts = _evidence_counts(db, [e.event_id for e in events])

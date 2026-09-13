@@ -131,12 +131,15 @@ Source text is untrusted: quotes are autoescaped, and a source link is rendered 
 it is `http`/`https` — a `javascript:` URL in a hostile feed is shown as "source link
 unavailable" instead.
 
-> **Open decision (ADR-0003 D4).** In the current system, approving a record can never
-> clear its review flag: every trigger that holds a published record in review is also a
-> database `CHECK`. So `high` and `severe` records — the most important ones — never
-> reach a briefing, even after a human has checked every quote. The briefing counts them
-> so the gap is visible. [ADR-0003](docs/adr/ADR-0003-product-interface.md) sets out the
-> options; changing it means amending CONSTRAINTS.md.
+**Approval does not clear the review flag; it decides what the product shows.** Every
+trigger that holds a published record in review is also a database `CHECK` — no
+approval or edit can turn `requires_human_review` back to `false` for a `high`/`severe`
+or low-confidence record. What a decision changes is `review_status`. Once a record is
+**approved** or **edited**, it is established: it appears in the feed, the location
+counts, and a briefing, visibly marked `human-approved`, whether or not the flag is
+still set. A **rejected** record never becomes established, however it is edited
+afterward. A **pending** record is visible only in the review queue. See
+[ADR-0003](docs/adr/ADR-0003-product-interface.md) D4.
 
 **There is no authentication.** Reviewer names are self-declared. Do not expose the
 review pages beyond a trusted network.
@@ -251,7 +254,7 @@ enforcement point rather than only a policy statement:
 | No untraceable assessment | Every event needs verified rows in `event_evidence`; `verified = true` requires a recorded verification method and timestamp |
 | No unbounded scope | The event taxonomy is a closed `CHECK`ed set; anything else is `background` |
 | No aggressive polling | `poll_interval_seconds BETWEEN 1800 AND 3600`, in both config validation and the database |
-| High-impact claims are always reviewed | `severity NOT IN ('high','severe') OR requires_human_review` — a database `CHECK`, which an approval cannot override |
+| High-impact claims are always reviewed | `severity NOT IN ('high','severe') OR requires_human_review` — a database `CHECK`, which an approval cannot override. A human must still act before the record is shown: approval establishes it and marks it `human-approved`; the flag itself never clears |
 | No untraceable assessment prose | The briefing is assembled from fields and verified quotes with no model call; a test fails if the extraction provider is imported into that path. Reviewers cannot edit the summary |
 | A decision must be auditable | `review_decisions.reason` is `NOT NULL`; blank or whitespace reasons are refused before the database sees them |
 

@@ -123,19 +123,53 @@ class TestWhatIsWithheld:
         assert briefing.withheld_pending_review == 1
         assert briefing.is_partial
 
-    def test_an_approved_high_impact_record_is_counted_separately(
+    def test_an_approved_high_impact_record_appears_marked_human_approved(
         self, session: Session, source: Source
     ) -> None:
-        """The consequence ADR-0003 D4 leaves open: approved, but still flagged, so still
-        withheld. Counted on its own so it is visible rather than silently missing."""
+        """ADR-0003 D4 option B: an approval establishes the record even though the
+        database CHECK never lets the flag itself clear for a severe record."""
         event = seed_event(session, source, severity="severe", confidence=0.95)
         apply_decision(session, event, reviewer="analyst", decision="approve", reason="Verified.")
 
         briefing = build_briefing(session, BRIEFING_DAY)
 
-        assert briefing.items == []
-        assert briefing.withheld_approved_but_flagged == 1
+        assert [item.event_id for item in briefing.items] == [event.event_id]
+        assert briefing.items[0].human_approved is True
         assert briefing.withheld_pending_review == 0
+        assert not briefing.is_partial
+
+    def test_an_approved_low_severity_record_is_not_marked_human_approved(
+        self, session: Session, source: Source
+    ) -> None:
+        """The badge means 'approved despite a standing flag', not 'was approved'. A
+        record that never needed review must not carry it, even after a real approval."""
+        event = seed_event(session, source, severity="low", confidence=0.95)
+        assert event.requires_human_review is False
+        apply_decision(session, event, reviewer="analyst", decision="approve", reason="Fine.")
+
+        briefing = build_briefing(session, BRIEFING_DAY)
+
+        assert briefing.items[0].human_approved is False
+
+    def test_an_edit_that_clears_the_flag_is_established_and_not_marked(
+        self, session: Session, source: Source
+    ) -> None:
+        """Once the flag is genuinely cleared, the record is ordinary again -- it is not
+        forever branded 'human-approved' just because a human once had to look."""
+        event = seed_event(session, source, severity="severe", confidence=0.95)
+        apply_decision(
+            session,
+            event,
+            reviewer="analyst",
+            decision="edit",
+            reason="72h is moderate, not severe.",
+            edits={"severity": "moderate"},
+        )
+        assert event.requires_human_review is False
+
+        briefing = build_briefing(session, BRIEFING_DAY)
+
+        assert briefing.items[0].human_approved is False
 
     def test_a_rejected_record_is_neither_shown_nor_counted(
         self, session: Session, source: Source

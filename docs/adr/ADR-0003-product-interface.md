@@ -1,6 +1,6 @@
 # ADR-0003: Product interface — dashboard, briefing, and the review path
 
-- **Status:** Proposed — D4 needs a human decision before this is accepted
+- **Status:** Accepted — D4 decided 2026-09-13: option B, implemented
 - **Date:** 2026-09-11
 - **Phase:** 3 (Product Interface)
 - **Builds on:** [ADR-0001](ADR-0001-architecture-and-niche.md) D4, [ADR-0002](ADR-0002-embeddings-and-extraction.md)
@@ -75,7 +75,7 @@ is served by construction: the view answers "where has disruption been reported"
 If a map is wanted later, it should plot fixed features from a static, offline gazetteer
 of ports and chokepoints — never coordinates extracted from reporting.
 
-### D4. What a human approval can change — **open, needs a decision**
+### D4. What a human approval can change — decided: option B
 
 **The finding.** Every trigger that holds a *published* record in review is also
 enforced by a database CHECK:
@@ -92,29 +92,46 @@ database insists on. An approved record therefore never reaches the feed, the lo
 counts, or a briefing. The only decision that can clear the flag is an *edit* that lowers
 severity on a record with confidence of at least 0.60.
 
-That is not a bug in the code — it is exactly what CONSTRAINTS.md Section 6 says:
-"Nothing with `requires_human_review = true` appears in a briefing as an established
-event." But it has a consequence that is easy to miss: **the most important records —
-`high` and `severe` — are precisely the ones that can never appear in a briefing**, even
-after a human has checked every quote.
+That was not a bug in the code — it was exactly what CONSTRAINTS.md Section 6 said at
+the time: "Nothing with `requires_human_review = true` appears in a briefing as an
+established event." But it had a consequence that was easy to miss: **the most important
+records — `high` and `severe` — were precisely the ones that could never appear in a
+briefing**, even after a human had checked every quote.
 
-**What this PR does:** implements the rule as written. Approval is recorded, and the
-response, the review page, and the briefing all *say* that the flag was kept and why.
-The briefing counts approved-but-flagged records separately from those still awaiting a
-decision, so the consequence is visible in the product rather than silent.
-
-**The options, for a human to choose between:**
+**The options that were on the table:**
 
 | Option | Change | Consequence |
 |---|---|---|
-| **A. Keep as is** (this PR) | None | `high`/`severe` records are only ever visible on their event page and in the review queue. Briefings systematically omit the most significant disruption. |
-| **B. Treat approved records as established** | Feed, locations and briefing include `review_status IN ('approved','edited')` regardless of the flag. Amend CONSTRAINTS.md §6. | The flag keeps meaning "a human had to look". Approved severe records appear, visibly marked as human-approved. The database CHECKs stay as they are. |
-| **C. Let approval clear the flag** | Relax both CHECKs to `... OR review_status IN ('approved','edited')`. Migration. Amend CONSTRAINTS.md §6. | Simplest downstream, but the database no longer guarantees that a severe record was ever seen by a human *unless* it says so in `review_status` — the guarantee moves from one column to two. |
+| A. Keep as is | None | `high`/`severe` records are only ever visible on their event page and in the review queue. Briefings systematically omit the most significant disruption. |
+| **B. Treat approved records as established** (chosen) | Feed, locations and briefing include `review_status IN ('approved','edited')` regardless of the flag. Amend CONSTRAINTS.md §6. | The flag keeps meaning "a human had to look". Approved severe records appear, visibly marked as human-approved. The database CHECKs stay as they are. |
+| C. Let approval clear the flag | Relax both CHECKs to `... OR review_status IN ('approved','edited')`. Migration. Amend CONSTRAINTS.md §6. | Simplest downstream, but the database no longer guarantees that a severe record was ever seen by a human *unless* it says so in `review_status` — the guarantee moves from one column to two. |
 
-**Recommendation:** B. It keeps both database guarantees intact, keeps the meaning of the
-flag honest ("this needed a human"), and changes only what the read paths consider
-established — a small, testable change. But it amends the controlling document, so it is
-not made here.
+**Decided 2026-09-13: option B.** It keeps both database guarantees intact, keeps the
+meaning of the flag honest ("this needed a human"), and changes only what the read paths
+consider established.
+
+**What is implemented:**
+
+- `gri.review.ESTABLISHED_REVIEW_STATUSES` = `{"not_required", "approved", "edited"}` is
+  the single definition of "established", used as a SQL filter
+  (`Event.review_status.in_(...)`) in `list_events`, `search_events`, and
+  `location_summary`, and as `gri.review.is_established(event)` in
+  `gri.briefing.build_briefing`'s Python-side selection loop. One definition, four call
+  sites, so the read paths cannot drift apart on what "established" means.
+- `gri.review.is_human_approved_despite_flag(event)` is true exactly when a record is
+  established *only* because a human overrode a standing flag: `requires_human_review`
+  is still `true` and `review_status` is `approved` or `edited`. This is the "visibly
+  marked as human-approved" requirement — surfaced as `human_approved` on
+  `EventSummaryOut` and `BriefingItemOut`, and rendered as a `human-approved` badge on
+  the feed, the event page, and the briefing.
+- The old `withheld_approved_but_flagged` counter on the briefing is gone: there is
+  nothing left to withhold on that basis, since an approved or edited record is now
+  established regardless of the flag. `withheld_pending_review` — records still awaiting
+  a decision — is the only withholding category left, and `is_partial` now tracks that
+  alone.
+- CONSTRAINTS.md Section 6 was amended to describe the three outcomes of a decision
+  (approved/edited, rejected, pending) rather than stating a blanket rule against the
+  flag.
 
 ### D5. The summary is not editable
 
@@ -163,7 +180,10 @@ covered by a regression test.
 
 **Negative, accepted**
 
-- Until D4 is decided, briefings omit `high`/`severe` records entirely. The briefing says
-  so, but it is still a significant gap in the product.
 - No map. The counts are adequate for the aggregate picture; a map would need an offline
   gazetteer to be done honestly.
+- A `human_approved` record's flag never gets *cleared* by option B — it stays a visible
+  asterisk on the record forever, by design. A reader who only glances at severity and
+  skips the badge could still mistake it for an ordinary record; the badge and the event
+  page's explanatory box are what carry that distinction, so they must not be dropped
+  from a future redesign of either.

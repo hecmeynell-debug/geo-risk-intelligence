@@ -15,6 +15,13 @@ narrow:
   ``ck_events_high_severity_requires_review`` and
   ``ck_events_low_confidence_requires_review`` say so. The result says why, rather than
   letting the approval appear to have done more than it did.
+* **The flag is not the same question as what the product shows.** The flag is a
+  permanent fact -- "this needed a human" -- that no decision clears when a database
+  `CHECK` insists on it. Whether a record is *established* -- shown in the feed, the
+  location counts, a briefing -- is a different question, answered by
+  :data:`ESTABLISHED_REVIEW_STATUSES` and :func:`is_established` below (ADR-0003 D4,
+  option B). An approved or edited record is established, flag or no flag; a pending or
+  rejected one is not.
 * **The summary is not editable.** It is assembled from cited evidence (NG-5). A
   reviewer who thinks it is wrong should reject the record, not rewrite it into prose
   that no source supports.
@@ -41,6 +48,17 @@ EDITABLE_FIELDS: frozenset[str] = frozenset({"title", "event_type", "event_date"
 TITLE_MIN, TITLE_MAX = 8, 200
 REVIEWER_MAX = 200
 
+#: A record is established -- fit to appear in the feed, the location counts, and a
+#: briefing -- once no review was needed, or once a human has approved or edited it
+#: (ADR-0003 D4, option B). The review flag itself is not the gate: the database keeps
+#: it set for as long as a CHECK constraint requires (Section 6 triggers 1 and 4), as a
+#: permanent record that this needed a human. Once a human has acted, their decision --
+#: not the flag -- is what the read paths honour.
+#:
+#: ``pending`` is excluded: nobody has looked yet. ``rejected`` is excluded, and stays
+#: excluded regardless of anything set later: a human looked and said no.
+ESTABLISHED_REVIEW_STATUSES: frozenset[str] = frozenset({"not_required", "approved", "edited"})
+
 
 class ReviewError(ValueError):
     """A decision that cannot be applied. Nothing has been changed when this is raised."""
@@ -58,6 +76,27 @@ class DecisionResult:
     changes: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: Why the review flag stayed set after an approval or edit, if it did.
     flag_kept_because: list[str] = field(default_factory=list)
+
+
+def is_established(event: Event) -> bool:
+    """Whether ``event`` belongs in the feed, the location counts, or a briefing.
+
+    The SQL-side equivalent, for building a query rather than testing a loaded row, is
+    ``Event.review_status.in_(ESTABLISHED_REVIEW_STATUSES)``.
+    """
+    return event.review_status in ESTABLISHED_REVIEW_STATUSES
+
+
+def is_human_approved_despite_flag(event: Event) -> bool:
+    """Whether ``event`` is established *only* because a human overrode a standing flag.
+
+    True for a record a human approved or edited that still carries
+    ``requires_human_review`` -- the case ADR-0003 D4 exists to handle. False for a
+    record that never needed review in the first place, so the two are never confused
+    in the product: one is an ordinary record, the other is established on a human's
+    word against a database guarantee that is still, deliberately, in force.
+    """
+    return event.requires_human_review and event.review_status in {"approved", "edited"}
 
 
 def review_reasons(event: Event) -> list[str]:

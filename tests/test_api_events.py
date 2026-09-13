@@ -19,10 +19,11 @@ from sqlalchemy.orm import Session
 
 from gri.api.main import create_app
 from gri.db import get_db
-from gri.models import RawDocument, Source
+from gri.models import Event, RawDocument, Source
 from gri.processing.embed import DeterministicFakeProvider
 from gri.processing.extract import ScriptedExtractionProvider
 from gri.processing.pipeline import process_document
+from gri.review import apply_decision
 from tests import factories
 
 pytestmark = pytest.mark.integration
@@ -160,6 +161,42 @@ class TestReviewRecordsAreNotServedAsEstablished:
         body = client.get("/events").json()
         assert body["total"] == 1
         assert body["items"][0]["requires_human_review"] is False
+        assert body["items"][0]["human_approved"] is False
+
+    def test_an_approved_flagged_record_is_listed_by_default(
+        self, client: TestClient, session: Session, source: Source
+    ) -> None:
+        """ADR-0003 D4 option B: approval establishes the record even though the
+        database CHECK never lets the flag itself clear for a severe record."""
+        event_id = seed_event(session, source, severity="severe", confidence=0.95)
+        event = session.get(Event, uuid.UUID(event_id))
+        assert event is not None
+        apply_decision(session, event, reviewer="analyst", decision="approve", reason="Verified.")
+
+        body = client.get("/events").json()
+
+        assert body["total"] == 1
+        item = body["items"][0]
+        assert item["requires_human_review"] is True
+        assert item["human_approved"] is True
+
+    def test_a_rejected_record_is_never_established_but_is_returned_when_asked_for(
+        self, client: TestClient, session: Session, source: Source
+    ) -> None:
+        """A rejection is a permanent no for the default, established-only view.
+        'include_pending_review' is a request to see everything not established --
+        pending or rejected -- not a request for pending specifically."""
+        event_id = seed_event(session, source, severity="severe", confidence=0.95)
+        event = session.get(Event, uuid.UUID(event_id))
+        assert event is not None
+        apply_decision(session, event, reviewer="analyst", decision="reject", reason="Misread.")
+
+        assert client.get("/events").json()["total"] == 0
+
+        shown = client.get("/events", params={"include_pending_review": True}).json()
+        assert shown["total"] == 1
+        assert shown["items"][0]["review_status"] == "rejected"
+        assert shown["items"][0]["human_approved"] is False
 
 
 class TestFilteringAndPaging:

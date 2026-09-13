@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from gri.api.ui import safe_url
 from gri.ingestion.normalise import normalise_text
 from gri.models import ReviewDecision, Source
+from gri.review import apply_decision
 from tests import factories
 from tests.helpers import seed_event
 
@@ -65,6 +66,19 @@ class TestFeed:
         assert f"/ui/events/{hidden.event_id}" not in page.text
         assert "1 record awaiting human review" in page.text
 
+    def test_an_approved_flagged_record_appears_marked_human_approved(
+        self, client: TestClient, session: Session, source: Source
+    ) -> None:
+        """ADR-0003 D4 option B: approval establishes the record for the feed too."""
+        event = seed_event(session, source, severity="severe", confidence=0.95)
+        apply_decision(session, event, reviewer="analyst", decision="approve", reason="Verified.")
+
+        page = client.get("/ui").text
+
+        assert f"/ui/events/{event.event_id}" in page
+        assert "human-approved" in page
+        assert "awaiting human review" not in page.lower()
+
     def test_the_feed_filters(self, client: TestClient, session: Session, source: Source) -> None:
         seed_event(session, source, severity="moderate")
         assert "Example Port" in client.get("/ui", params={"severity": "moderate"}).text
@@ -100,6 +114,22 @@ class TestTheEventPage:
         page = client.get(f"/ui/events/{event.event_id}").text
         assert "Awaiting human review" in page
         assert "not an established record" in page
+
+    def test_an_approved_flagged_record_is_labelled_as_established(
+        self, client: TestClient, session: Session, source: Source
+    ) -> None:
+        """ADR-0003 D4 option B: an approval replaces the 'awaiting review' box with a
+        positive one -- the record is established, the flag is just still set."""
+        event = seed_event(session, source, severity="severe", confidence=0.95)
+        apply_decision(session, event, reviewer="analyst", decision="approve", reason="Verified.")
+
+        page = client.get(f"/ui/events/{event.event_id}").text
+
+        assert "Approved by a human reviewer" in page
+        assert "still carries an automatic review" in page
+        assert "database check will not let a decision clear" in page
+        assert "Awaiting human review" not in page
+        assert "not an established record" not in page
 
     def test_quotes_are_escaped(self, client: TestClient, session: Session, source: Source) -> None:
         """Source text is untrusted. A quote must render as text, never as markup."""
@@ -146,6 +176,20 @@ class TestTheBriefingPage:
         seed_event(session, source, severity="severe", confidence=0.95)
         page = client.get("/ui/briefing", params={"date": "2026-09-01"}).text
         assert "This briefing is partial" in page
+
+    def test_an_approved_flagged_record_appears_marked_and_is_not_partial(
+        self, client: TestClient, session: Session, source: Source
+    ) -> None:
+        """ADR-0003 D4 option B: approval establishes the record in the briefing too,
+        and a briefing with nothing left pending is not partial."""
+        event = seed_event(session, source, severity="severe", confidence=0.95)
+        apply_decision(session, event, reviewer="analyst", decision="approve", reason="Verified.")
+
+        page = client.get("/ui/briefing", params={"date": "2026-09-01"}).text
+
+        assert event.title in page
+        assert "human-approved" in page
+        assert "This briefing is partial" not in page
 
 
 @integration
@@ -195,6 +239,9 @@ class TestTheReviewPages:
 
         assert "Decision recorded" in response.text
         assert "keeps its review flag" in response.text
+        # ADR-0003 D4 option B: the flag stays, but the record is established anyway.
+        assert "now appears in the feed" in response.text
+        assert "marked as human-approved" in response.text
         assert len(session.scalars(select(ReviewDecision)).all()) == 1
 
     def test_a_rejected_edit_keeps_what_the_reviewer_typed(
