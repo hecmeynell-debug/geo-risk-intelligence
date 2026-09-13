@@ -195,6 +195,12 @@ quality per model instead of hiding it in an aggregate. The reasoning, and the c
 which the cascade should be dropped, are in
 [ADR-0002](docs/adr/ADR-0002-embeddings-and-extraction.md).
 
+**The worker turns new documents into events automatically**, within two hard caps:
+`GRI_MAX_EXTRACTIONS_PER_TICK` (default 20) and `GRI_DAILY_EXTRACTION_BUDGET_USD`
+(default $1.00, measured from recorded costs, checked before every document). Setting
+either to 0 turns automatic processing off. See
+[ADR-0005](docs/adr/ADR-0005-automatic-processing.md).
+
 The whole test suite runs against a scripted extraction provider: **no key, no network,
 no spend.** Set `GRI_ANTHROPIC_API_KEY` in `.env` to make real calls.
 
@@ -309,6 +315,8 @@ Each phase ends at a gate that requires human sign-off before the next begins.
   — the dashboard, the briefing, the review path, and the open approval question
 - [docs/adr/ADR-0004-event-consolidation.md](docs/adr/ADR-0004-event-consolidation.md)
   — duplicates, updates, and conflicts: how a second report changes a record
+- [docs/adr/ADR-0005-automatic-processing.md](docs/adr/ADR-0005-automatic-processing.md)
+  — the worker's automatic processing, and the caps on what it spends
 
 ## Licence
 
