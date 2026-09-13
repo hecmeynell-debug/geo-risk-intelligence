@@ -207,6 +207,26 @@ either to 0 turns automatic processing off. See
 The whole test suite runs against a scripted extraction provider: **no key, no network,
 no spend.** Set `GRI_ANTHROPIC_API_KEY` in `.env` to make real calls.
 
+## Evaluation
+
+A small hand-labelled set (`src/gri/evaluation/dataset.py`) covers every value the
+extraction pipeline can classify a document as — `new_event`, `update`, `duplicate`,
+`background`, `insufficient_evidence` — plus both database-enforced review triggers.
+
+```
+docker compose run --rm migrate python scripts/run_evaluation.py         # CI runs this: no key, no spend
+docker compose run --rm migrate python scripts/run_evaluation.py --live  # real model, costs money, never in CI
+```
+
+The default run scores the deterministic pipeline logic against a scripted "model" built
+from each document's expected output — a regression gate on routing and classification,
+not a model-quality measurement, since the "model" here is a fixture. `--live` runs the
+same documents through the real cascade and reports what it actually produced; it is
+never wired into CI and never fails the build, because a real model's output is not
+something this repository controls run to run. Both write an `EvaluationRun` row (git
+SHA, prompt version, model) and one `EvaluationResult` per example. See
+[ADR-0006](docs/adr/ADR-0006-evaluation-harness.md).
+
 ## Sources: nothing is enabled
 
 Ten candidate sources are registered — maritime authorities, canal authorities, energy
@@ -296,8 +316,8 @@ tests/               unit tests, plus live-database constraint tests
 | 0 | Foundations: Compose stack, schema, migrations, constraints, CI | **Complete** |
 | 1 | Ingestion and raw store: adapters, provenance, idempotency | **Complete** |
 | 2 | Core pipeline: chunk, embed, cluster, extract, verify citations, API | **Complete** |
-| 3 | Product interface: feed, filters, evidence panel, briefing, review queue | **In review** |
-| 4 | Evaluation and operations: labelled set, CI metrics gate, logging | Not started |
+| 3 | Product interface: feed, filters, evidence panel, briefing, review queue | **Complete** |
+| 4 | Evaluation and operations: labelled set, CI metrics gate, logging | **In review** |
 | 5 | Polish and packaging | Not started |
 
 Each phase ends at a gate that requires human sign-off before the next begins.
@@ -315,11 +335,13 @@ Each phase ends at a gate that requires human sign-off before the next begins.
 - [docs/adr/ADR-0002-embeddings-and-extraction.md](docs/adr/ADR-0002-embeddings-and-extraction.md)
   — embedding and extraction models, the verification boundary, measured costs
 - [docs/adr/ADR-0003-product-interface.md](docs/adr/ADR-0003-product-interface.md)
-  — the dashboard, the briefing, the review path, and the open approval question
+  — the dashboard, the briefing, and the review path
 - [docs/adr/ADR-0004-event-consolidation.md](docs/adr/ADR-0004-event-consolidation.md)
   — duplicates, updates, and conflicts: how a second report changes a record
 - [docs/adr/ADR-0005-automatic-processing.md](docs/adr/ADR-0005-automatic-processing.md)
   — the worker's automatic processing, and the caps on what it spends
+- [docs/adr/ADR-0006-evaluation-harness.md](docs/adr/ADR-0006-evaluation-harness.md)
+  — the labelled set, the deterministic CI gate, and the separate live model-quality run
 
 ## Licence
 

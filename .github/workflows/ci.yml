@@ -87,6 +87,11 @@ jobs:
         # historical measurement attributed to that version becomes a lie.
         run: python scripts/check_prompts.py
 
+      - name: Evaluation harness (deterministic tier)
+        # The Phase 4 gate (ADR-0006). Scripted, so no key and no spend -- a failure here
+        # is a regression in the pipeline logic around the model, not model variance.
+        run: python scripts/run_evaluation.py
+
       - name: Seed the source registry
         run: python scripts/seed_sources.py
 

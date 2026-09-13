@@ -173,7 +173,8 @@ The project is done when all of the following are true:
 - [ ] Every event record carries source links and verifiable quotes
 - [ ] Schema validation and citation validation are enforced **in code and in tests**
 - [ ] A human review path exists (approve / reject / edit, with a recorded reason)
-- [ ] Evaluation metrics are measured and visible
+- [x] Evaluation metrics are measured and visible (ADR-0006: `scripts/run_evaluation.py`,
+      CI-gated deterministic tier plus a manual live-model tier)
 - [ ] CI is green and **fails** on broken extraction or citation checks
 - [ ] Non-goals and limitations are documented and honest about what the system cannot do
 - [ ] The project can be explained in an interview as **auditable open-source risk
