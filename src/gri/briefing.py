@@ -6,16 +6,19 @@ it is either a field of an established record or a verbatim, verified quote with
 to its source. ``tests/test_briefing.py`` asserts this module imports no model provider,
 and that the same day briefs byte-identically twice.
 
-What a briefing leaves out is reported, not hidden:
+What is established, and what is withheld:
 
-* Records flagged for human review are withheld -- CONSTRAINTS.md Section 6 says they
-  are not established events -- but the briefing *counts* them, so a partial briefing is
-  visibly partial.
-* That count is split out for records a human has **approved** but which still carry the
-  review flag because the database requires it (``high``/``severe`` severity, or low
-  confidence). Under the current rule those can never appear in a briefing. Surfacing the
-  number keeps that consequence in view instead of letting it pass silently -- see
-  ADR-0003 D4, which leaves the rule for a human to decide.
+* A record is established -- shown here -- once no review was needed, or once a human
+  has approved or edited it, whether or not the review flag itself is still set. The
+  flag is a permanent fact the database keeps for as long as a CHECK constraint
+  requires it (``high``/``severe`` severity, or low confidence); what a decision changes
+  is ``review_status``, and it is that, not the flag, that this module honours
+  (:data:`gri.review.ESTABLISHED_REVIEW_STATUSES`, ADR-0003 D4).
+* A record still **pending** a decision -- or **rejected** -- is withheld, but *counted*,
+  so a partial briefing is visibly partial rather than silently thin.
+* An included record that still carries the flag is marked ``human_approved``, so a
+  reader can tell "approved despite a standing flag" apart from an ordinary record that
+  never needed review.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from gri.models import Event, EventEvidence, RawDocument, Source
+from gri.review import is_established, is_human_approved_despite_flag
 from gri.taxonomy import SEVERITY_LEVELS
 
 #: Most quotes shown per record. Enough to evidence the headline fields without turning
@@ -67,6 +71,9 @@ class BriefingItem:
     sectors: list[str]
     quotes: list[BriefingQuote]
     change_note: str | None
+    #: True when this item is here only because a human approved or edited it while the
+    #: review flag stayed set (ADR-0003 D4). False for a record that never needed review.
+    human_approved: bool = False
 
 
 @dataclass
@@ -74,10 +81,10 @@ class Briefing:
     day: date
     generated_from: str = "established records and verified quotes only; no model call"
     items: list[BriefingItem] = field(default_factory=list)
-    #: Flagged records in the window that are awaiting a human decision.
+    #: Records in the window still awaiting a human decision. Rejected records are not
+    #: counted here or anywhere: they are excluded from consideration entirely, the same
+    #: as if they had never been extracted.
     withheld_pending_review: int = 0
-    #: Records a human approved that still carry the flag the database requires.
-    withheld_approved_but_flagged: int = 0
     #: Established records dropped because they had no verified quote. Should be zero;
     #: reported because a briefing line without evidence must never be served.
     excluded_no_verified_evidence: int = 0
@@ -85,7 +92,7 @@ class Briefing:
 
     @property
     def is_partial(self) -> bool:
-        return bool(self.withheld_pending_review or self.withheld_approved_but_flagged)
+        return bool(self.withheld_pending_review)
 
 
 def _day_bounds(day: date) -> tuple[datetime, datetime]:
@@ -122,11 +129,11 @@ def build_briefing(session: Session, day: date) -> Briefing:
 
     established: list[Event] = []
     for event in candidates:
-        if not event.requires_human_review:
+        if is_established(event):
             established.append(event)
-        elif event.review_status == "approved":
-            briefing.withheld_approved_but_flagged += 1
         else:
+            # The query already excluded 'rejected'; everything reaching this branch is
+            # 'pending'.
             briefing.withheld_pending_review += 1
 
     for event in established:
@@ -147,6 +154,7 @@ def build_briefing(session: Session, day: date) -> Briefing:
                 sectors=sorted(s.sector for s in event.sectors),
                 quotes=quotes,
                 change_note=event.change_note,
+                human_approved=is_human_approved_despite_flag(event),
             )
         )
 

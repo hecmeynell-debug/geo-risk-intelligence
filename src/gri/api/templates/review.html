@@ -4,7 +4,8 @@
 <h1>Review queue</h1>
 <p class="meta">
   {{ queue.total }} record{% if queue.total != 1 %}s{% endif %} awaiting a human decision,
-  oldest first. None of these appears in the feed or in a briefing until it is cleared.
+  oldest first. None of these appears in the feed or a briefing until it is approved or
+  edited — an approval establishes a record even if it keeps its review flag.
 </p>
 
 {% if queue.items %}

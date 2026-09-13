@@ -38,7 +38,8 @@
       <td><a href="/ui/events/{{ e.event_id }}">{{ e.title }}</a>
         {% if e.locations %}<div class="meta">{{ e.locations | map(attribute='name') | join(', ') }}</div>{% endif %}</td>
       <td>{{ e.event_type }}</td>
-      <td><span class="badge sev-{{ e.severity }}">{{ e.severity }}</span></td>
+      <td><span class="badge sev-{{ e.severity }}">{{ e.severity }}</span>
+        {% if e.human_approved %}<span class="badge badge-ok" title="Approved by a reviewer; still carries a standing review flag a database check would not let the decision clear">human-approved</span>{% endif %}</td>
       <td>{{ e.evidence_count }} quote{% if e.evidence_count != 1 %}s{% endif %}</td>
     </tr>
   {% endfor %}

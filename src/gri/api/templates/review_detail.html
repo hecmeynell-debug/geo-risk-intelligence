@@ -17,11 +17,16 @@
   {% if outcome.changes %}
     Changed: {% for name, c in outcome.changes.items() %}{{ name }} ({{ c.before }} → {{ c.after }}){% if not loop.last %}, {% endif %}{% endfor %}.
   {% endif %}
-  {% if outcome.flag_kept_because %}
-    <br>The record keeps its review flag, so it stays out of the feed and briefings:
-    {% for k in outcome.flag_kept_because %}{{ k }}{% if not loop.last %}; {% endif %}{% endfor %}.
-  {% elif outcome.decision != 'reject' %}
-    <br>The review flag is cleared; the record now appears in the feed and briefings.
+  {% if outcome.decision == 'reject' %}
+    <br>The record stays out of the feed, locations, and briefings.
+  {% elif outcome.flag_kept_because %}
+    <br>The record keeps its review flag — a database check still requires it
+    ({% for k in outcome.flag_kept_because %}{{ k }}{% if not loop.last %}; {% endif %}{% endfor %}) —
+    but it is established on your decision and now appears in the feed, locations, and
+    briefings, marked as human-approved.
+  {% else %}
+    <br>The review flag is cleared; the record now appears in the feed, locations, and
+    briefings like any other established record.
   {% endif %}
 </div>
 {% endif %}

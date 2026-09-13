@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from gri.models import ReviewDecision, Source
+from gri.review import apply_decision
 from tests.helpers import seed_event
 
 pytestmark = pytest.mark.integration
@@ -138,6 +139,21 @@ class TestBriefingEndpoint:
         assert body["withheld_pending_review"] == 1
         assert body["is_partial"] is True
 
+    def test_an_approved_flagged_record_appears_marked_human_approved(
+        self, client: TestClient, session: Session, source: Source
+    ) -> None:
+        """ADR-0003 D4 option B: approval establishes the record; the flag stays set,
+        but it no longer holds the record out of the briefing."""
+        event = seed_event(session, source, severity="severe", confidence=0.95)
+        apply_decision(session, event, reviewer="analyst", decision="approve", reason="Verified.")
+
+        body = client.get("/briefing", params={"date": "2026-09-01"}).json()
+
+        assert len(body["items"]) == 1
+        assert body["items"][0]["human_approved"] is True
+        assert body["is_partial"] is False
+        assert "withheld_approved_but_flagged" not in body
+
 
 class TestLocations:
     def test_counts_established_records_per_location(
@@ -161,6 +177,18 @@ class TestLocations:
         assert client.get("/locations").json()["by_location"] == []
         included = client.get("/locations", params={"include_pending_review": True}).json()
         assert included["by_location"][0]["events"] == 1
+
+    def test_an_approved_flagged_record_counts_by_default(
+        self, client: TestClient, session: Session, source: Source
+    ) -> None:
+        """ADR-0003 D4 option B: approval establishes the record for the location
+        counts too, not only for the event endpoints."""
+        event = seed_event(session, source, severity="severe", confidence=0.95)
+        apply_decision(session, event, reviewer="analyst", decision="approve", reason="Verified.")
+
+        body = client.get("/locations").json()
+
+        assert body["by_location"][0]["events"] == 1
 
     def test_the_response_carries_no_coordinates(
         self, client: TestClient, session: Session, source: Source

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from gri.db import get_db
 from gri.models import Event, EventLocation
+from gri.review import ESTABLISHED_REVIEW_STATUSES
 
 router = APIRouter(tags=["locations"])
 
@@ -54,7 +55,9 @@ def location_summary(db: Session, include_pending_review: bool = False) -> Locat
     base = select(EventLocation).join(Event, EventLocation.event_id == Event.event_id)
     base = base.where(Event.review_status != "rejected")
     if not include_pending_review:
-        base = base.where(Event.requires_human_review.is_(False))
+        # An approved or edited record counts even if it still carries the review flag
+        # a database CHECK refused to clear (ADR-0003 D4).
+        base = base.where(Event.review_status.in_(ESTABLISHED_REVIEW_STATUSES))
     rows = base.subquery()
 
     by_location = db.execute(

@@ -9,12 +9,21 @@
   · review status: {{ event.review_status }}
 </p>
 
-{% if event.requires_human_review %}
+{% if event.requires_human_review and not event.human_approved %}
 <div class="flag">
   <strong>Awaiting human review — not an established record.</strong>
   It is excluded from the feed and from briefings until a reviewer clears it.
   {% if reasons %}<ul>{% for r in reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
   <a href="/ui/review/{{ event.event_id }}">Open in the review queue</a>
+</div>
+{% elif event.human_approved %}
+<div class="ok">
+  <strong>Approved by a human reviewer.</strong> It still carries an automatic review
+  flag that a database check will not let a decision clear
+  {% if reasons %}({% for r in reasons %}{{ r }}{% if not loop.last %}; {% endif %}{% endfor %}){% endif %},
+  but a human has checked every quote and the record stands. It appears in the feed,
+  locations, and briefings like any established record.
+  <a href="/ui/review/{{ event.event_id }}">Review history</a>
 </div>
 {% endif %}
 

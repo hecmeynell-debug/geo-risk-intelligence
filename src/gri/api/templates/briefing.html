@@ -14,16 +14,9 @@
 {% if briefing.is_partial %}
 <div class="flag">
   <strong>This briefing is partial.</strong>
-  {% if briefing.withheld_pending_review %}
-    {{ briefing.withheld_pending_review }} record{% if briefing.withheld_pending_review != 1 %}s{% endif %}
-    from this day {% if briefing.withheld_pending_review != 1 %}are{% else %}is{% endif %} awaiting
-    <a href="/ui/review">human review</a> and not shown.
-  {% endif %}
-  {% if briefing.withheld_approved_but_flagged %}
-    {{ briefing.withheld_approved_but_flagged }} approved high-impact or low-confidence
-    record{% if briefing.withheld_approved_but_flagged != 1 %}s{% endif %} still carry the
-    review flag the database requires, and so cannot appear here under the current rule.
-  {% endif %}
+  {{ briefing.withheld_pending_review }} record{% if briefing.withheld_pending_review != 1 %}s{% endif %}
+  from this day {% if briefing.withheld_pending_review != 1 %}are{% else %}is{% endif %} awaiting
+  <a href="/ui/review">human review</a> and not shown.
 </div>
 {% endif %}
 
@@ -32,6 +25,7 @@
   <div class="panel">
     <div class="meta">
       <span class="badge sev-{{ item.severity }}">{{ item.severity }}</span>
+      {% if item.human_approved %}<span class="badge badge-ok" title="Approved by a reviewer; still carries a standing review flag a database check would not let the decision clear">human-approved</span>{% endif %}
       {{ item.kind }} · {{ item.event_type }} · {{ item.event_date }}
       {% if item.locations %}· {{ item.locations | join(', ') }}{% endif %}
     </div>

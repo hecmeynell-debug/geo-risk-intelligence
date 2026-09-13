@@ -36,6 +36,9 @@ class BriefingItemOut(BaseModel):
     sectors: list[str]
     quotes: list[BriefingQuoteOut]
     change_note: str | None
+    #: True when this item is here only because a human approved or edited it while the
+    #: review flag stayed set (ADR-0003 D4).
+    human_approved: bool
 
 
 class BriefingOut(BaseModel):
@@ -43,7 +46,6 @@ class BriefingOut(BaseModel):
     generated_from: str
     is_partial: bool
     withheld_pending_review: int
-    withheld_approved_but_flagged: int
     excluded_no_verified_evidence: int
     items: list[BriefingItemOut]
     disclaimer: str
@@ -55,7 +57,6 @@ def briefing_out(briefing: Briefing) -> BriefingOut:
         generated_from=briefing.generated_from,
         is_partial=briefing.is_partial,
         withheld_pending_review=briefing.withheld_pending_review,
-        withheld_approved_but_flagged=briefing.withheld_approved_but_flagged,
         excluded_no_verified_evidence=briefing.excluded_no_verified_evidence,
         items=[
             BriefingItemOut(
