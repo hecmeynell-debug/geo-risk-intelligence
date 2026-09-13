@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Locations{% endblock %}
+{% block content %}
+<h1>Locations</h1>
+<p class="meta">{{ summary.scope_note }}</p>
+
+<h2>By country</h2>
+{% if summary.by_country %}
+<div class="tbl"><table>
+  <thead><tr><th>Country</th><th>Established records</th></tr></thead>
+  <tbody>{% for c in summary.by_country %}<tr><td>{{ c.country_code or 'not stated' }}</td><td>{{ c.events }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<div class="panel">No locations recorded on established records yet.</div>{% endif %}
+
+<h2>By location</h2>
+{% if summary.by_location %}
+<div class="tbl"><table>
+  <thead><tr><th>Location</th><th>Kind</th><th>Country</th><th>Established records</th></tr></thead>
+  <tbody>{% for l in summary.by_location %}
+    <tr><td><a href="/ui?country={{ (l.country_code or '') | urlencode }}">{{ l.name }}</a></td><td>{{ l.location_type }}</td><td>{{ l.country_code or '—' }}</td><td>{{ l.events }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
+
+<p class="meta">
+  There is no map on purpose. Records name fixed features — ports, straits, terminals —
+  but the pipeline does not geocode them, and drawing points it did not measure would imply
+  a precision the evidence does not carry.
+</p>
+{% endblock %}

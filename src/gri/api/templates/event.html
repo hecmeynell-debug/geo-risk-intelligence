@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ event.title }}{% endblock %}
+{% block content %}
+<h1>{{ event.title }}</h1>
+<p class="meta">
+  {{ event.event_type }} · {{ event.event_date }} ·
+  <span class="badge sev-{{ event.severity }}">{{ event.severity }}</span>
+  {% if event.confidence is not none %}· confidence {{ '%.2f' | format(event.confidence) }}{% endif %}
+  · review status: {{ event.review_status }}
+</p>
+
+{% if event.requires_human_review %}
+<div class="flag">
+  <strong>Awaiting human review — not an established record.</strong>
+  It is excluded from the feed and from briefings until a reviewer clears it.
+  {% if reasons %}<ul>{% for r in reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
+  <a href="/ui/review/{{ event.event_id }}">Open in the review queue</a>
+</div>
+{% endif %}
+
+<div class="panel">
+  <p>{{ event.summary }}</p>
+  {% if event.severity_rationale %}<p class="meta">Severity rationale: {{ event.severity_rationale }}</p>{% endif %}
+  {% if event.change_note %}<p class="meta">{{ event.change_note }}</p>{% endif %}
+</div>
+
+<div class="grid">
+  <div class="panel"><strong>Locations</strong>
+    {% if event.locations %}<ul>{% for l in event.locations %}<li>{{ l.name }} <span class="meta">({{ l.location_type }}{% if l.country_code %}, {{ l.country_code }}{% endif %})</span></li>{% endfor %}</ul>
+    {% else %}<p class="meta">None extracted.</p>{% endif %}</div>
+  <div class="panel"><strong>Actors</strong>
+    {% if event.actors %}<ul>{% for a in event.actors %}<li>{{ a.name }} <span class="meta">({{ a.entity_type }}, {{ a.role }})</span></li>{% endfor %}</ul>
+    {% else %}<p class="meta">None extracted.</p>{% endif %}</div>
+  <div class="panel"><strong>Sectors</strong>
+    {% if event.affected_sectors %}<ul>{% for s in event.affected_sectors %}<li>{{ s }}</li>{% endfor %}</ul>
+    {% else %}<p class="meta">None extracted.</p>{% endif %}</div>
+</div>
+
+{% include "_evidence.html" %}
+
+{% if history %}
+<h2>Review history</h2>
+{% for h in history %}
+<div class="panel meta"><strong>{{ h.decision }}</strong> by {{ h.reviewer }}, {{ h.decided_at.strftime('%Y-%m-%d %H:%M UTC') }} — {{ h.reason }}</div>
+{% endfor %}
+{% endif %}
+
+<p class="meta">{{ event.disclaimer }}</p>
+{% endblock %}

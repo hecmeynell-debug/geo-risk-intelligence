@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Review: {{ event.title }}{% endblock %}
+{% block content %}
+<p class="meta"><a href="/ui/review">← Review queue</a></p>
+<h1>{{ event.title }}</h1>
+<p class="meta">
+  {{ event.event_type }} · {{ event.event_date }} ·
+  <span class="badge sev-{{ event.severity }}">{{ event.severity }}</span>
+  {% if event.confidence is not none %}· confidence {{ '%.2f' | format(event.confidence) }}{% endif %}
+  · review status: <strong>{{ event.review_status }}</strong>
+</p>
+
+{% if outcome %}
+<div class="ok">
+  Decision recorded: <strong>{{ outcome.decision }}</strong>. Review status is now
+  <strong>{{ outcome.review_status }}</strong>.
+  {% if outcome.changes %}
+    Changed: {% for name, c in outcome.changes.items() %}{{ name }} ({{ c.before }} → {{ c.after }}){% if not loop.last %}, {% endif %}{% endfor %}.
+  {% endif %}
+  {% if outcome.flag_kept_because %}
+    <br>The record keeps its review flag, so it stays out of the feed and briefings:
+    {% for k in outcome.flag_kept_because %}{{ k }}{% if not loop.last %}; {% endif %}{% endfor %}.
+  {% elif outcome.decision != 'reject' %}
+    <br>The review flag is cleared; the record now appears in the feed and briefings.
+  {% endif %}
+</div>
+{% endif %}
+
+{% if error %}<div class="err"><strong>Not recorded.</strong> {{ error }}</div>{% endif %}
+
+{% if reasons and event.requires_human_review %}
+<div class="flag"><strong>Why this record is here</strong>
+  <ul>{% for r in reasons %}<li>{{ r }}</li>{% endfor %}</ul></div>
+{% endif %}
+
+<div class="panel">
+  <p>{{ event.summary }}</p>
+  {% if event.severity_rationale %}<p class="meta">Severity rationale: {{ event.severity_rationale }}</p>{% endif %}
+</div>
+
+{% include "_evidence.html" %}
+
+<h2>Decision</h2>
+<form class="panel" method="post" action="/ui/review/{{ event.event_id }}">
+  <div class="grid">
+    <div><label for="reviewer">Your name</label>
+      <input id="reviewer" name="reviewer" value="{{ form.reviewer or '' }}" required maxlength="200"></div>
+    <div><label for="decision">Decision</label>
+      <select id="decision" name="decision" required>
+        {% for d in ['approve', 'reject', 'edit'] %}<option value="{{ d }}" {% if form.decision == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+      </select></div>
+  </div>
+  <p><label for="reason">Reason (required — a decision without one is not auditable)</label>
+    <textarea id="reason" name="reason" required maxlength="2000">{{ form.reason or '' }}</textarea></p>
+
+  <details {% if form.decision == 'edit' %}open{% endif %}>
+    <summary>Edits (only used with “edit”; leave a field blank to keep it)</summary>
+    <div class="grid" style="margin-top:10px">
+      <div><label for="edit_title">Title</label><input id="edit_title" name="edit_title" value="{{ form.edit_title or '' }}" placeholder="{{ event.title }}"></div>
+      <div><label for="edit_event_type">Event type</label>
+        <select id="edit_event_type" name="edit_event_type"><option value="">(unchanged)</option>
+          {% for t in event_types %}<option value="{{ t }}" {% if form.edit_event_type == t %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+      <div><label for="edit_event_date">Event date</label><input id="edit_event_date" type="date" name="edit_event_date" value="{{ form.edit_event_date or '' }}"></div>
+      <div><label for="edit_severity">Severity</label>
+        <select id="edit_severity" name="edit_severity"><option value="">(unchanged)</option>
+          {% for s in severities %}<option value="{{ s }}" {% if form.edit_severity == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+    </div>
+    <p class="meta">The summary is not editable: it is assembled from cited evidence. If it is wrong, reject the record.</p>
+  </details>
+  <p><button type="submit">Record decision</button></p>
+</form>
+
+{% if history %}
+<h2>Review history</h2>
+{% for h in history %}
+<div class="panel meta"><strong>{{ h.decision }}</strong> by {{ h.reviewer }}, {{ h.decided_at.strftime('%Y-%m-%d %H:%M UTC') }} — {{ h.reason }}
+  {% if h.changes %}<br>Changed: {% for name, c in h.changes.items() %}{{ name }} ({{ c.before }} → {{ c.after }}){% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Review queue{% endblock %}
+{% block content %}
+<h1>Review queue</h1>
+<p class="meta">
+  {{ queue.total }} record{% if queue.total != 1 %}s{% endif %} awaiting a human decision,
+  oldest first. None of these appears in the feed or in a briefing until it is cleared.
+</p>
+
+{% if queue.items %}
+<div class="tbl"><table>
+  <thead><tr><th>Record</th><th>Severity</th><th>Why it is here</th><th>Evidence</th></tr></thead>
+  <tbody>{% for item in queue.items %}
+    <tr>
+      <td><a href="/ui/review/{{ item.event.event_id }}">{{ item.event.title }}</a>
+        <div class="meta">{{ item.event.event_type }} · {{ item.event.event_date }}</div></td>
+      <td><span class="badge sev-{{ item.event.severity }}">{{ item.event.severity }}</span></td>
+      <td>{% for r in item.reasons %}<div class="meta">{{ r }}</div>{% endfor %}</td>
+      <td>{{ item.event.evidence_count }}</td>
+    </tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}
+<div class="panel">Nothing is waiting for review.</div>
+{% endif %}
+
+<p class="meta">
+  This tool has no authentication. The reviewer name on each decision is self-declared, so
+  do not expose the review pages beyond a trusted network.
+</p>
+{% endblock %}

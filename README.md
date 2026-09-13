@@ -8,10 +8,11 @@ structured event records where **every claim is traceable to a quote verified ag
 source text we retrieved**. Records with weak, conflicting, or incomplete evidence are
 routed to a human review queue rather than published as established.
 
-> **Status: Phase 2 (Core Intelligence Pipeline) complete.** The stack, schema, adapters, and
-> the raw document store are in place, and the full pipeline runs end to end: chunk,
-> embed, cluster, extract against a strict schema, verify every citation, score
-> confidence, and publish or route to review. **No source is enabled**, so nothing is
+> **Status: Phase 3 (Product Interface) in review.** Phases 0–2 are complete: the stack,
+> schema, adapters, raw document store, and the full pipeline — chunk, embed, cluster,
+> extract against a strict schema, verify every citation, score confidence, and publish
+> or route to review. Phase 3 adds the dashboard, the daily briefing, the location view,
+> and the human review queue. **No source is enabled**, so nothing is
 > being fetched and the database holds no documents — enabling a source requires a human
 > to record a terms review first. See [Sources](#sources-nothing-is-enabled) and
 > [Roadmap](#roadmap).
@@ -55,6 +56,7 @@ API and worker.
 
 | | |
 |---|---|
+| Dashboard | <http://localhost:8000/ui> |
 | API | <http://localhost:8000> |
 | OpenAPI docs | <http://localhost:8000/docs> |
 | Health | <http://localhost:8000/health> |
@@ -93,11 +95,13 @@ Processing:  clean → deduplicate → chunk → embed → cluster
 PostgreSQL + pgvector
         │
         ▼
-FastAPI  ──  /events  /events/{id}  /search  /briefing  /review  /health
+FastAPI  ──  /events  /events/{id}  /search  /briefing  /locations
+             /review  /review/{id}/decisions  /health
         │
         ▼
-Dashboard  ──  timeline, filters, event detail with evidence panel,
-               aggregate location view (fixed infrastructure only)
+Dashboard (/ui)  ──  feed with filters, event detail with evidence panel,
+                     aggregate location counts (fixed features only),
+                     daily briefing, review queue
 ```
 
 Three services in Docker Compose: `db`, `api`, `worker`, plus a one-shot `migrate` job
@@ -105,6 +109,37 @@ that both long-running services wait on. No Kubernetes, no Redis, no second data
 The reasoning is in [ADR-0001](docs/adr/ADR-0001-architecture-and-niche.md).
 
 ---
+
+## The dashboard, and what it refuses to do
+
+Server-rendered HTML from FastAPI at `/ui`. **No React, no bundler, no npm, no build
+step** — the templates ship inside the Python package, so `docker compose up --build`
+stays one command.
+
+| Page | What it shows | What it refuses |
+|---|---|---|
+| Feed | Established records, filterable by type, severity, country, date | Records awaiting review — counted and linked, never listed as established |
+| Event | The record, and every quote with its verification method and a link to its source | A record without its evidence |
+| Locations | Counts per fixed feature and per country | Coordinates, positions, or anything over time (NG-4). No map: the pipeline does not geocode, and plotting points it never measured would imply false precision |
+| Briefing | Records first seen or updated that day, each with verified quotes | Any generated prose. There is **no model call** in the briefing path, and CI checks that. What it withholds, it counts |
+| Review | Flagged records, why each is flagged, and a decision form | A decision without a reason; an edit to the summary; an approval that pretends to clear a flag the database requires |
+
+Every page renders the API's own response objects, so "never serve an event without its
+evidence" has one code path rather than two.
+
+Source text is untrusted: quotes are autoescaped, and a source link is rendered only if
+it is `http`/`https` — a `javascript:` URL in a hostile feed is shown as "source link
+unavailable" instead.
+
+> **Open decision (ADR-0003 D4).** In the current system, approving a record can never
+> clear its review flag: every trigger that holds a published record in review is also a
+> database `CHECK`. So `high` and `severe` records — the most important ones — never
+> reach a briefing, even after a human has checked every quote. The briefing counts them
+> so the gap is visible. [ADR-0003](docs/adr/ADR-0003-product-interface.md) sets out the
+> options; changing it means amending CONSTRAINTS.md.
+
+**There is no authentication.** Reviewer names are self-declared. Do not expose the
+review pages beyond a trusted network.
 
 ## The core idea: citations that are actually checked
 
@@ -204,7 +239,9 @@ enforcement point rather than only a policy statement:
 | No untraceable assessment | Every event needs verified rows in `event_evidence`; `verified = true` requires a recorded verification method and timestamp |
 | No unbounded scope | The event taxonomy is a closed `CHECK`ed set; anything else is `background` |
 | No aggressive polling | `poll_interval_seconds BETWEEN 1800 AND 3600`, in both config validation and the database |
-| High-impact claims are always reviewed | `severity NOT IN ('high','severe') OR requires_human_review` — a database `CHECK` |
+| High-impact claims are always reviewed | `severity NOT IN ('high','severe') OR requires_human_review` — a database `CHECK`, which an approval cannot override |
+| No untraceable assessment prose | The briefing is assembled from fields and verified quotes with no model call; a test fails if the extraction provider is imported into that path. Reviewers cannot edit the summary |
+| A decision must be auditable | `review_decisions.reason` is `NOT NULL`; blank or whitespace reasons are refused before the database sees them |
 
 These are covered by tests in `tests/test_schema_integration.py`, which assert that
 **Postgres itself** refuses the write.
@@ -219,8 +256,14 @@ src/gri/
   config.py          settings, with the polling range enforced at load time
   db.py              engine, session scope, health probe
   models/            SQLAlchemy models -- sources, documents, events, evidence, llmops, eval
-  api/               FastAPI app (health only in Phase 0)
-  worker/            scheduled worker (heartbeat in Phase 0)
+  api/events.py      feed, filters, detail, search
+  api/briefing.py    the daily briefing endpoint
+  api/locations.py   aggregate location counts
+  api/review.py      the review queue and decisions
+  api/ui.py          the server-rendered dashboard, and its templates/
+  briefing.py        assembling a briefing from verified evidence -- no model call
+  review.py          applying a human decision, and what a decision may not change
+  worker/            scheduled polling of enabled sources
   ingestion/         http, adapters, registry, normalise, store, runner
   processing/        chunk, embed, cluster, extract, verify   (Phase 2)
 migrations/          Alembic
@@ -238,7 +281,7 @@ tests/               unit tests, plus live-database constraint tests
 | 0 | Foundations: Compose stack, schema, migrations, constraints, CI | **Complete** |
 | 1 | Ingestion and raw store: adapters, provenance, idempotency | **Complete** |
 | 2 | Core pipeline: chunk, embed, cluster, extract, verify citations, API | **Complete** |
-| 3 | Product interface: feed, filters, evidence panel, briefing, review queue | Not started |
+| 3 | Product interface: feed, filters, evidence panel, briefing, review queue | **In review** |
 | 4 | Evaluation and operations: labelled set, CI metrics gate, logging | Not started |
 | 5 | Polish and packaging | Not started |
 
@@ -254,6 +297,10 @@ Each phase ends at a gate that requires human sign-off before the next begins.
   eligibility, the terms-review gate, provenance fields, fetching conduct
 - [docs/adr/ADR-0001-architecture-and-niche.md](docs/adr/ADR-0001-architecture-and-niche.md)
   — architecture and niche, with the trade-offs
+- [docs/adr/ADR-0002-embeddings-and-extraction.md](docs/adr/ADR-0002-embeddings-and-extraction.md)
+  — embedding and extraction models, the verification boundary, measured costs
+- [docs/adr/ADR-0003-product-interface.md](docs/adr/ADR-0003-product-interface.md)
+  — the dashboard, the briefing, the review path, and the open approval question
 
 ## Licence
 

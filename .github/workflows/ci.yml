@@ -73,6 +73,15 @@ jobs:
           pytest tests/test_verify.py -v
           pytest tests/test_pipeline_integration.py -v -k "CitationGate or HappyPath"
 
+      - name: Nothing is served without its evidence, and no briefing invents prose
+        # The Phase 3 gate. An event rendered without its quotes, a briefing carrying
+        # generated text, a flagged record presented as established, or a decision
+        # recorded without a reason each fail here by name.
+        run: |
+          pytest -v tests/test_briefing.py
+          pytest -v tests/test_ui.py -k "TheEventPage or SafeUrl or TheBriefingPage"
+          pytest -v tests/test_review.py -k "Refusals"
+
       - name: Prompt integrity
         # A released prompt template must not change without a version bump, or every
         # historical measurement attributed to that version becomes a lie.

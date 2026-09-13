@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Briefing for {{ briefing.day }}{% endblock %}
+{% block content %}
+<h1>Daily briefing — {{ briefing.day }}</h1>
+
+<form class="filters panel" method="get" action="/ui/briefing">
+  <div><label for="date">Day (UTC)</label><input id="date" type="date" name="date" value="{{ briefing.day }}"></div>
+  <div><button type="submit">Show</button></div>
+  <div class="meta">JSON: <a href="/briefing?date={{ briefing.day }}">/briefing?date={{ briefing.day }}</a></div>
+</form>
+
+<p class="meta">Built from {{ briefing.generated_from }}.</p>
+
+{% if briefing.is_partial %}
+<div class="flag">
+  <strong>This briefing is partial.</strong>
+  {% if briefing.withheld_pending_review %}
+    {{ briefing.withheld_pending_review }} record{% if briefing.withheld_pending_review != 1 %}s{% endif %}
+    from this day {% if briefing.withheld_pending_review != 1 %}are{% else %}is{% endif %} awaiting
+    <a href="/ui/review">human review</a> and not shown.
+  {% endif %}
+  {% if briefing.withheld_approved_but_flagged %}
+    {{ briefing.withheld_approved_but_flagged }} approved high-impact or low-confidence
+    record{% if briefing.withheld_approved_but_flagged != 1 %}s{% endif %} still carry the
+    review flag the database requires, and so cannot appear here under the current rule.
+  {% endif %}
+</div>
+{% endif %}
+
+{% if briefing.items %}
+  {% for item in briefing.items %}
+  <div class="panel">
+    <div class="meta">
+      <span class="badge sev-{{ item.severity }}">{{ item.severity }}</span>
+      {{ item.kind }} · {{ item.event_type }} · {{ item.event_date }}
+      {% if item.locations %}· {{ item.locations | join(', ') }}{% endif %}
+    </div>
+    <h2 style="margin-top:6px"><a href="/ui/events/{{ item.event_id }}">{{ item.title }}</a></h2>
+    {% if item.change_note %}<p class="meta">{{ item.change_note }}</p>{% endif %}
+    {% for q in item.quotes %}
+      <blockquote>{{ q.quote }}</blockquote>
+      <div class="meta">
+        {{ q.source_name }} ·
+        {% set link = q.source_url | safe_url %}
+        {% if link %}<a href="{{ link }}" rel="noopener noreferrer nofollow" target="_blank">source</a>{% else %}source link unavailable{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="panel">No established records were first seen or updated on this day.</div>
+{% endif %}
+
+<p class="meta">{{ briefing.disclaimer }}</p>
+{% endblock %}

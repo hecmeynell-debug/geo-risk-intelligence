@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Event feed{% endblock %}
+{% block content %}
+<h1>Event feed</h1>
+<p class="meta">
+  Established records only. {{ page.total }} match{% if page.total != 1 %}es{% endif %}.
+  {% if pending_total %}
+    <a href="/ui/review">{{ pending_total }} record{% if pending_total != 1 %}s{% endif %} awaiting human review</a>
+    {% if pending_total != 1 %}are{% else %}is{% endif %} not shown here.
+  {% endif %}
+</p>
+
+<form class="filters panel" method="get" action="/ui">
+  <div><label for="event_type">Event type</label>
+    <select id="event_type" name="event_type">
+      <option value="">Any</option>
+      {% for t in event_types %}<option value="{{ t }}" {% if filters.event_type == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+    </select></div>
+  <div><label for="severity">Severity</label>
+    <select id="severity" name="severity">
+      <option value="">Any</option>
+      {% for s in severities %}<option value="{{ s }}" {% if filters.severity == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select></div>
+  <div><label for="country">Country (ISO-2)</label>
+    <input id="country" name="country" value="{{ filters.country }}" size="4" maxlength="2"></div>
+  <div><label for="date_from">From</label><input id="date_from" type="date" name="date_from" value="{{ filters.date_from }}"></div>
+  <div><label for="date_to">To</label><input id="date_to" type="date" name="date_to" value="{{ filters.date_to }}"></div>
+  <div><button type="submit">Filter</button></div>
+</form>
+
+{% if page.items %}
+<div class="tbl"><table>
+  <thead><tr><th>Date</th><th>Record</th><th>Type</th><th>Severity</th><th>Evidence</th></tr></thead>
+  <tbody>
+  {% for e in page.items %}
+    <tr>
+      <td>{{ e.event_date }}</td>
+      <td><a href="/ui/events/{{ e.event_id }}">{{ e.title }}</a>
+        {% if e.locations %}<div class="meta">{{ e.locations | map(attribute='name') | join(', ') }}</div>{% endif %}</td>
+      <td>{{ e.event_type }}</td>
+      <td><span class="badge sev-{{ e.severity }}">{{ e.severity }}</span></td>
+      <td>{{ e.evidence_count }} quote{% if e.evidence_count != 1 %}s{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% if page.total > page.offset + page.limit %}
+  <p><a href="?{{ {'event_type': filters.event_type, 'severity': filters.severity, 'country': filters.country, 'date_from': filters.date_from, 'date_to': filters.date_to, 'offset': page.offset + page.limit} | urlencode }}">Next page</a></p>
+{% endif %}
+{% else %}
+<div class="panel">No established records match. That reflects what the enabled sources reported — not that nothing happened.</div>
+{% endif %}
+{% endblock %}

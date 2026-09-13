@@ -36,8 +36,14 @@ seed-sources: ## Register the candidate sources (all disabled and unreviewed)
 sources: ## Show each source and whether it has cleared the review gates
 	$(COMPOSE) run --rm migrate python scripts/review_source_terms.py --list
 
-gate: ## Run the Phase 1 and Phase 2 gates on their own
-	$(COMPOSE) run --rm migrate pytest -v \n		tests/test_verify.py \n		tests/test_pipeline_integration.py \n		tests/test_ingestion_integration.py
+gate: ## Run the Phase 1, 2 and 3 gates on their own
+	$(COMPOSE) run --rm migrate pytest -v \
+		tests/test_verify.py \
+		tests/test_pipeline_integration.py \
+		tests/test_ingestion_integration.py \
+		tests/test_briefing.py \
+		tests/test_review.py \
+		tests/test_ui.py
 
 test: ## Run all tests, including live-database integration tests
 	$(COMPOSE) run --rm -e GRI_DATABASE_URL=postgresql+psycopg://gri:gri@db:5432/gri \
