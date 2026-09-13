@@ -53,6 +53,10 @@ def seed_event(
 ) -> Event:
     """Run one synthetic document through the pipeline and return the event it made."""
     marker = uuid.uuid4().hex
+    # A unique reference per document, so the fake embedder gives each its own vector
+    # and seeded records stay separate events rather than consolidating (ADR-0004).
+    # Appended at the end, so every factory quote is still a verbatim substring.
+    text = f"{text} Ref {marker}."
     document = RawDocument(
         source_id=source.id,
         url=url or f"https://notices.example.invalid/notice/{marker}",

@@ -9,6 +9,7 @@ Run with:  pytest -m integration
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
 
@@ -63,7 +64,8 @@ def seed_event(session: Session, source: Source, **kwargs: object) -> str:
     """Run a document through the pipeline and return the created event id."""
     from gri.ingestion.normalise import content_hash, sha256_text
 
-    text = factories.NOTICE_TEXT
+    # Unique per call so seeded records stay separate events (ADR-0004).
+    text = f"{factories.NOTICE_TEXT} Ref {uuid.uuid4().hex}."
     document = RawDocument(
         source_id=source.id,
         url=f"https://notices.example.invalid/notice/{abs(hash(str(kwargs))) % 10000}",

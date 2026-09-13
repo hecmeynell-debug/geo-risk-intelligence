@@ -11,7 +11,7 @@
     </div>
     <blockquote>{{ q.quote }}</blockquote>
     <div class="meta">
-      {{ q.source_name }}{% if q.published_at %}, published {{ q.published_at[:10] }}{% endif %} ·
+      {{ q.source_name }}{% if q.document_title %} · <em>{{ q.document_title }}</em>{% endif %}{% if q.published_at %}, published {{ q.published_at[:10] }}{% endif %} ·
       {% set link = q.source_url | safe_url %}
       {% if link %}<a href="{{ link }}" rel="noopener noreferrer nofollow" target="_blank">source document</a>
       {% else %}<span>source link unavailable</span>{% endif %}
